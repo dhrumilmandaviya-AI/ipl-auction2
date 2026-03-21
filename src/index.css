@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #1e2a3a #080c14;
+  }
+  *::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  *::-webkit-scrollbar-track { background: #080c14; }
+  *::-webkit-scrollbar-thumb { background: #1e2a3a; border-radius: 2px; }
+
+  body {
+    @apply bg-bg-deep text-white font-body;
+    background-image: repeating-linear-gradient(
+      90deg, rgba(255,255,255,0.008) 0px, rgba(255,255,255,0.008) 1px, transparent 1px, transparent 80px
+    ), repeating-linear-gradient(
+      0deg, rgba(255,255,255,0.008) 0px, rgba(255,255,255,0.008) 1px, transparent 1px, transparent 80px
+    );
+    min-height: 100vh;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-bg-card border border-bg-border rounded-xl;
+  }
+
+  .card-elevated {
+    @apply bg-bg-elevated border border-bg-border rounded-xl;
+  }
+
+  .btn-gold {
+    @apply bg-gold text-black font-bold py-2 px-4 rounded-lg 
+           hover:bg-gold-bright transition-all duration-150 
+           active:scale-95 font-body;
+  }
+
+  .btn-ghost {
+    @apply border border-bg-border text-white/70 font-medium py-2 px-4 rounded-lg 
+           hover:border-gold/40 hover:text-white transition-all duration-150 font-body;
+  }
+
+  .btn-danger {
+    @apply bg-danger/20 border border-danger/40 text-danger font-bold py-2 px-4 rounded-lg 
+           hover:bg-danger/30 transition-all duration-150 font-body;
+  }
+
+  .btn-sold {
+    @apply bg-sold text-black font-bold py-3 px-6 rounded-lg text-lg
+           hover:bg-emerald-400 transition-all duration-150 active:scale-95 font-body;
+  }
+
+  .price-display {
+    @apply font-display text-gold;
+  }
+
+  .stat-badge {
+    @apply text-xs font-mono bg-bg-deep border border-bg-border rounded px-2 py-1 text-white/60;
+  }
+
+  .role-badge-bat { @apply bg-role-bat/20 text-role-bat border border-role-bat/30 text-xs font-bold px-2 py-0.5 rounded; }
+  .role-badge-bwl { @apply bg-role-bwl/20 text-role-bwl border border-role-bwl/30 text-xs font-bold px-2 py-0.5 rounded; }
+  .role-badge-ar  { @apply bg-role-ar/20 text-role-ar border border-role-ar/30 text-xs font-bold px-2 py-0.5 rounded; }
+  .role-badge-wk  { @apply bg-role-wk/20 text-role-wk border border-role-wk/30 text-xs font-bold px-2 py-0.5 rounded; }
+
+  .glow-gold { box-shadow: 0 0 20px rgba(245,158,11,0.4), 0 0 60px rgba(245,158,11,0.15); }
+  .glow-electric { box-shadow: 0 0 20px rgba(59,130,246,0.4), 0 0 60px rgba(59,130,246,0.15); }
+  .glow-sold { box-shadow: 0 0 20px rgba(16,185,129,0.4), 0 0 60px rgba(16,185,129,0.15); }
+}
+
+/* Ticker animation */
+.ticker-wrap {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ticker-content {
+  display: inline-block;
+  animation: ticker 60s linear infinite;
+}
+.ticker-content:hover { animation-play-state: paused; }
+
+/* Arc timer */
+.arc-timer {
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+.arc-timer-track { fill: none; stroke: #1e2a3a; stroke-width: 4; }
+.arc-timer-fill { fill: none; stroke-width: 4; stroke-linecap: round; transition: stroke-dashoffset 1s linear, stroke 0.3s; }
+
+/* Barrel overlay */
+.barrel-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 12, 20, 0.95);
+  backdrop-filter: blur(8px);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Bid flash on new bid */
+@keyframes newBid {
+  0% { background: rgba(245,158,11,0.3); transform: scale(1.02); }
+  100% { background: transparent; transform: scale(1); }
+}
+.bid-flash { animation: newBid 0.5s ease-out; }
+
+/* Shimmer loading */
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, #0e1420 0px, #1e2a3a 40px, #0e1420 80px);
+  background-size: 200px 100%;
+  animation: shimmer 1.5s infinite;
+}
