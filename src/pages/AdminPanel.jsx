@@ -391,6 +391,25 @@ Start the JSON array now:`
                 🔄 Open Re-auction (Unsold Players)
               </button>
             )}
+            {/* Switch auction mode mid-auction */}
+            <button
+              onClick={async () => {
+                const newMode = room?.auction_mode === 'physical' ? 'virtual' : 'physical'
+                const { error } = await supabase
+                  .from('auction_rooms')
+                  .update({ auction_mode: newMode })
+                  .eq('id', roomId)
+                if (error) toast.error(error.message)
+                else {
+                  toast.success(`Switched to ${newMode === 'physical' ? '🔨 Physical' : '💻 Virtual'} mode`)
+                  loadRoom(roomId)
+                }
+              }}
+              className="btn-ghost flex items-center gap-2"
+              title="Switch between physical and virtual bidding"
+            >
+              {room?.auction_mode === 'physical' ? '💻 Switch to Virtual' : '🔨 Switch to Physical'}
+            </button>
             <button
               onClick={toggleTransferWindow}
               disabled={openingTransfers}
