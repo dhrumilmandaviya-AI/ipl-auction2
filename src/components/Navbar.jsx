@@ -22,6 +22,7 @@ export default function Navbar() {
     { to: `/room/${roomId}/matchday`, label: '📅 Match Day' },
     { to: `/room/${roomId}/transfers`, label: `🔄 Transfers${room?.transfer_window_open ? ' 🟢' : ''}` },
     { to: `/room/${roomId}/leaderboard`, label: '🏆 Points' },
+    { to: `/room/${roomId}/rules`, label: '📋 Rules' },
     { to: `/room/${roomId}/season`, label: '🎖️ Season End' },
     ...(isAdmin ? [{ to: `/room/${roomId}/admin`, label: '⚙️ Admin' }] : []),
   ]
