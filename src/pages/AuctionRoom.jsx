@@ -140,7 +140,7 @@ export default function AuctionRoom() {
           </AnimatePresence>
 
           {/* Timer + admin pass button */}
-          {currentPlayer && room?.status === 'active' && (
+          {currentPlayer && ['active', 'reauction'].includes(room?.status) && (
             <div className="card p-6 flex flex-col items-center gap-3">
               <CountdownTimer
                 lastBidAt={currentPlayer.last_bid_at}
@@ -160,7 +160,7 @@ export default function AuctionRoom() {
           )}
 
           {/* ── Upcoming Players (random sample) ── */}
-          {upcomingPreview.length > 0 && room?.status === 'active' && (
+          {upcomingPreview.length > 0 && ['active', 'reauction'].includes(room?.status) && (
             <div className="card p-3">
               <div className="flex items-center justify-between mb-2.5">
                 <div className="flex items-center gap-2">
@@ -205,7 +205,7 @@ export default function AuctionRoom() {
 
         {/* RIGHT: Bid controls + history */}
         <div className="space-y-4">
-          {room?.status === 'active' && currentPlayer && (() => {
+          {['active', 'reauction'].includes(room?.status) && currentPlayer && (() => {
             if (auctionMode === 'physical') {
               if (isAdmin) return <PhysicalBidPanel currentPlayer={currentPlayer} />
               return (
