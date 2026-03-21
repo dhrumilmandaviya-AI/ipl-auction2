@@ -84,6 +84,11 @@
 }
 .ticker-content:hover { animation-play-state: paused; }
 
+@keyframes ticker-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
 /* Arc timer */
 .arc-timer {
   transform: rotate(-90deg);
