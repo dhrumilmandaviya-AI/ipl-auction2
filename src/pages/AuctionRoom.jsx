@@ -69,6 +69,8 @@ export default function AuctionRoom() {
   const handleExpire = useCallback(async () => {
     if (isAdmin && currentPlayer?.current_bid > 0) await markSold()
   }, [isAdmin, currentPlayer?.id, currentPlayer?.current_bid, markSold])
+
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
