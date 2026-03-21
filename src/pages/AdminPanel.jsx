@@ -170,7 +170,6 @@ Start the JSON array now:`
       for (const teamId of uniqueTeams) {
         await supabase.rpc('update_team_points', { p_team_id: teamId, p_room_id: roomId })
       }
-      }
 
       toast.success(`✅ Points processed for ${processed} players from ${matchInput.trim()}!`)
       setMatchInput('')
