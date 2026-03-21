@@ -12,8 +12,10 @@ import SeasonEnd from './pages/SeasonEnd'
 import Rules from './pages/Rules'
 
 export default function App() {
+  // Use the base path for GitHub Pages routing (e.g. /ipl-auction/)
+  const basename = import.meta.env.BASE_URL || '/'
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <AuctionProvider>
         <Toaster
           position="top-center"

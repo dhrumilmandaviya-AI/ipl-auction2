@@ -2,12 +2,13 @@
 <html>
 <head>
 <script>
-  // GitHub Pages SPA routing fix
-  // Redirects 404s back to index.html preserving the path as a query param
   var l = window.location;
+  var segmentCount = 1; // 1 for github.com/username/repo
+  var pathParts = l.pathname.split('/').slice(0, segmentCount + 1).join('/');
+  sessionStorage.redirect = l.href;
   l.replace(
     l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
-    l.pathname.split('/').slice(0, 1).join('/') + '/?/' +
+    pathParts + '/?/' +
     l.pathname.slice(1).replace(/&/g, '~and~') +
     (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
     l.hash
