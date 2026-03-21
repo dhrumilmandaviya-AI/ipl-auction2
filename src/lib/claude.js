@@ -29,7 +29,12 @@ export function extractText(data) {
 }
 
 export function parseJSON(text) {
-  const match = text.match(/\[[\s\S]*\]|\{[\s\S]*\}/)
+  // Strip markdown code fences
+  let cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim()
+  // Try to find array first, then object
+  const arrMatch = cleaned.match(/\[[\s\S]*\]/)
+  const objMatch = cleaned.match(/\{[\s\S]*\}/)
+  const match = arrMatch || objMatch
   if (!match) throw new Error('No JSON found in Claude response')
   return JSON.parse(match[0])
 }

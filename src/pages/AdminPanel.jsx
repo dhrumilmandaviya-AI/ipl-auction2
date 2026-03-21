@@ -121,14 +121,17 @@ ${buildScorecardPrompt('[fetched from web search]', playerNames).split('\n').sli
       const playerNames = PLAYERS.map(p => p.name).join(', ')
       const data = await callClaudeWithSearch([{
         role: 'user',
-        content: `Search for IPL 2026 team squads and find which team each of these players belongs to in IPL 2026:
-${playerNames}
+        content: `Search for IPL 2026 team squads. For each player below find their IPL 2026 team.
 
-Return ONLY a JSON array, no markdown:
-[{"id": "p001", "team_2026": "RCB"}, {"id": "p002", "team_2026": "MI"}]
+Players: ${playerNames}
 
-Use these team codes only: MI, CSK, RCB, KKR, DC, SRH, RR, PBKS, LSG, GT
-Include all players. If a player is not in IPL 2026 keep their last known team.`
+CRITICAL: Respond with ONLY a raw JSON array. No explanation, no markdown, no code fences, nothing else before or after the array.
+
+Format exactly like this:
+[{"id":"p001","team_2026":"RCB"},{"id":"p002","team_2026":"MI"}]
+
+Team codes: MI CSK RCB KKR DC SRH RR PBKS LSG GT
+Cover every player. If not in IPL 2026 use their last known team.`
       }], 2000)
 
       setSyncStatus('📝 Saving player teams...')
