@@ -31,10 +31,14 @@ export function extractText(data) {
 export function parseJSON(text) {
   // Strip markdown code fences
   let cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim()
-  // Try to find array first, then object
+  // Try array first, then object
   const arrMatch = cleaned.match(/\[[\s\S]*\]/)
   const objMatch = cleaned.match(/\{[\s\S]*\}/)
   const match = arrMatch || objMatch
-  if (!match) throw new Error('No JSON found in Claude response')
-  return JSON.parse(match[0])
+  if (!match) throw new Error(`No JSON found. Claude said: ${cleaned.slice(0, 200)}`)
+  try {
+    return JSON.parse(match[0])
+  } catch (e) {
+    throw new Error(`JSON parse failed. Got: ${match[0].slice(0, 200)}`)
+  }
 }
