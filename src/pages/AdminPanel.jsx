@@ -40,6 +40,65 @@ export default function AdminPanel() {
 
   const adminCode = room ? `ADMIN_${room.code.slice(-4)}` : '...'
 
+  /** Apply selection logic: zero out points for players not in selected 15,
+   *  then zero out players outside top 11 of the selected 15 per team */
+  async function applySelectionPoints(matchId) {
+    const { data: selections } = await supabase
+      .from('team_match_selections')
+      .select('*')
+      .eq('match_id', matchId)
+      .eq('auction_room_id', roomId)
+
+    if (!selections?.length) return // no selections made — all points count as-is
+
+    for (const sel of selections) {
+      // Get all performances for this team in this match
+      const { data: perfs } = await supabase
+        .from('match_performances')
+        .select('*')
+        .eq('match_id', matchId)
+        .eq('team_id', sel.team_id)
+
+      if (!perfs?.length) continue
+
+      // Zero out players not in the selected 15
+      const notSelected = perfs.filter(p => !sel.player_ids.includes(p.player_id))
+      for (const p of notSelected) {
+        await supabase.from('match_performances')
+          .update({ counted_points: 0 })
+          .eq('id', p.id)
+      }
+
+      // From the selected 15, pick top 11 by points (max 5 overseas)
+      const inSelected = perfs
+        .filter(p => sel.player_ids.includes(p.player_id))
+        .sort((a, b) => b.total_points - a.total_points)
+
+      // Apply overseas cap — max 5 in top 11
+      let overseasCount = 0
+      let domesticCount = 0
+      const top11Ids = []
+      for (const p of inSelected) {
+        if (top11Ids.length >= 11) break
+        const playerData = PLAYERS.find(pl => pl.id === p.player_id)
+        if (playerData?.is_foreign) {
+          if (overseasCount >= 5) continue
+          overseasCount++
+        } else {
+          domesticCount++
+        }
+        top11Ids.push(p.player_id)
+      }
+
+      // Set counted_points for top 11, zero for rest
+      for (const p of inSelected) {
+        await supabase.from('match_performances')
+          .update({ counted_points: top11Ids.includes(p.player_id) ? p.total_points : 0 })
+          .eq('id', p.id)
+      }
+    }
+  }
+
   async function processPoints() {
     if (!matchInput.trim()) return toast.error('Enter a match name to search for')
     setProcessingPoints(true)
@@ -107,12 +166,17 @@ Start the JSON array now:`
           did_not_play: perf.did_not_play || false,
           total_points: totalPts,
         })
-
-        await supabase.rpc('update_team_points', {
-          p_team_id: auctionPlayer.sold_to_team_id,
-          p_room_id: roomId,
-        })
         processed++
+      }
+
+      // Now apply selection logic — only top 11 from selected 15 count per team
+      await applySelectionPoints(match.id)
+
+      // Update team totals
+      const uniqueTeams = [...new Set(soldPlayers.map(ap => ap.sold_to_team_id))]
+      for (const teamId of uniqueTeams) {
+        await supabase.rpc('update_team_points', { p_team_id: teamId, p_room_id: roomId })
+      }
       }
 
       toast.success(`✅ Points processed for ${processed} players from ${matchInput.trim()}!`)
@@ -174,6 +238,71 @@ Only include players who are confirmed in ${teamNames[teamCode]}'s IPL 2026 squa
       toast.success(`✅ Updated ${totalUpdated} players from Cricbuzz!`)
     } catch (err) {
       toast.error(err.message || 'Player sync failed')
+      setSyncStatus('')
+    } finally {
+      setSyncingData(false)
+    }
+  }
+
+  /** Fetch IPL 2025 stats for all players in batches */
+  async function syncStats() {
+    setSyncingData('stats')
+    setSyncStatus('📊 Fetching IPL 2025 stats (batch 1)...')
+    try {
+      const batchSize = 25
+      let totalUpdated = 0
+
+      for (let i = 0; i < PLAYERS.length; i += batchSize) {
+        const batch = PLAYERS.slice(i, i + batchSize)
+        const batchNum = Math.floor(i / batchSize) + 1
+        const totalBatches = Math.ceil(PLAYERS.length / batchSize)
+        setSyncStatus(`📊 Fetching stats batch ${batchNum}/${totalBatches}...`)
+
+        const data = await callClaudeWithSearch([{
+          role: 'user',
+          content: `Search cricbuzz.com for IPL 2025 season statistics for these players:
+${batch.map(p => p.name).join(', ')}
+
+Your response must be ONLY a JSON array. No intro, no markdown. Start with [ end with ].
+
+Format:
+[{"name":"Virat Kohli","batting":"741 runs | Avg 49.4 | SR 144.2 | HS 113 | 5x50 | 2x100","bowling":null},
+{"name":"Jasprit Bumrah","batting":null,"bowling":"20 wkts | Eco 6.7 | Avg 22.3 | Best 4/14"}]
+
+Rules:
+- batting: null if player is a pure bowler and didn't bat meaningfully
+- bowling: null if player didn't bowl
+- Keep stats concise — runs, avg, SR, HS, fifties, hundreds for batters; wkts, eco, avg, best for bowlers
+- If player had no IPL 2025 stats write "No IPL 2025 data"
+Start the JSON array now:`
+        }], 2000)
+
+        const text = extractText(data)
+        let stats
+        try { stats = parseJSON(text) } catch { continue }
+
+        for (const s of stats) {
+          const player = PLAYERS.find(p =>
+            p.name.toLowerCase() === s.name?.toLowerCase()
+          )
+          if (!player) continue
+          await supabase.from('players').update({
+            batting_stats: s.batting || null,
+            bowling_stats: s.bowling || null,
+          }).eq('id', player.id)
+          totalUpdated++
+        }
+
+        // Small delay between batches to avoid rate limiting
+        if (i + batchSize < PLAYERS.length) {
+          await new Promise(r => setTimeout(r, 1000))
+        }
+      }
+
+      setSyncStatus('')
+      toast.success(`✅ Updated stats for ${totalUpdated} players!`)
+    } catch (err) {
+      toast.error(err.message || 'Stats fetch failed')
       setSyncStatus('')
     } finally {
       setSyncingData(false)
@@ -482,6 +611,28 @@ Start the JSON array now:`
           </div>
         </div>
 
+        {/* IPL 2025 Stats Fetch */}
+        <div className="card p-4 space-y-3">
+          <h2 className="font-bold">📊 Fetch IPL 2025 Stats</h2>
+          <p className="text-xs text-white/40 font-mono">
+            Click once — Claude searches Cricbuzz for each player's IPL 2025 batting and bowling stats and saves them to the database.
+          </p>
+          {syncStatus && (
+            <div className="bg-gold/5 border border-gold/20 rounded-lg p-2 font-mono text-xs text-gold/80 animate-pulse">
+              {syncStatus}
+            </div>
+          )}
+          <button
+            onClick={syncStats}
+            disabled={syncingData}
+            className="btn-gold w-full"
+          >
+            {syncingData === 'stats'
+              ? <span className="flex items-center justify-center gap-2"><span className="w-3 h-3 border-2 border-black/30 border-t-black rounded-full animate-spin"/>Fetching stats...</span>
+              : '📊 Fetch 2025 Stats'}
+          </button>
+        </div>
+
         {/* Season Setup */}
         <div className="card p-4 space-y-3">
           <h2 className="font-bold">📅 Sync Match Schedule</h2>
@@ -714,10 +865,19 @@ function PlayerBrowser() {
   const [roleFilter, setRoleFilter] = useState('All')
   const [foreignFilter, setForeignFilter] = useState('All')
   const [selected, setSelected] = useState(null)
+  const [dbPlayers, setDbPlayers] = useState([])
 
-  const ROLE_CLASS = { BAT: 'role-badge-bat', BWL: 'role-badge-bwl', AR: 'role-badge-ar', WK: 'role-badge-wk' }
+  // Load players from DB (includes batting_stats / bowling_stats)
+  useEffect(() => {
+    if (!open || dbPlayers.length > 0) return
+    supabase.from('players').select('*').order('name').then(({ data }) => {
+      if (data) setDbPlayers(data)
+    })
+  }, [open])
 
-  const filtered = PLAYERS.filter(p => {
+  const playerList = dbPlayers.length > 0 ? dbPlayers : PLAYERS
+
+  const filtered = playerList.filter(p => {
     if (roleFilter !== 'All' && p.role !== roleFilter) return false
     if (foreignFilter === 'Foreign' && !p.is_foreign) return false
     if (foreignFilter === 'Indian' && p.is_foreign) return false
@@ -803,20 +963,20 @@ function PlayerBrowser() {
                     <div className="text-xs text-white/30 font-mono mt-1">{selected.nationality}</div>
                   </div>
                   <div className="text-xs text-white/25 font-mono">Base Price: <span className="text-gold">₹20L</span></div>
-                  {selected.batting && (
+                  {selected.batting_stats && (
                     <div className="bg-bg-deep rounded-lg p-3">
                       <div className="text-xs text-white/35 font-mono uppercase tracking-wider mb-1">🏏 Batting (IPL 2025)</div>
-                      <div className="text-xs text-white/70 font-mono leading-relaxed">{selected.batting}</div>
+                      <div className="text-xs text-white/70 font-mono leading-relaxed">{selected.batting_stats}</div>
                     </div>
                   )}
-                  {selected.bowling && (
+                  {selected.bowling_stats && (
                     <div className="bg-bg-deep rounded-lg p-3">
                       <div className="text-xs text-white/35 font-mono uppercase tracking-wider mb-1">🎳 Bowling (IPL 2025)</div>
-                      <div className="text-xs text-white/70 font-mono leading-relaxed">{selected.bowling}</div>
+                      <div className="text-xs text-white/70 font-mono leading-relaxed">{selected.bowling_stats}</div>
                     </div>
                   )}
-                  {!selected.batting && !selected.bowling && (
-                    <div className="text-xs text-white/20 font-mono italic">No 2025 stats available</div>
+                  {!selected.batting_stats && !selected.bowling_stats && (
+                    <div className="text-xs text-white/20 font-mono italic">No stats yet — use Fetch 2025 Stats in admin</div>
                   )}
                 </div>
               ) : (

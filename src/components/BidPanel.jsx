@@ -18,7 +18,7 @@ export default function BidPanel({ currentPlayer }) {
   const canAffordNext = myTeam.purse_remaining >= nextBid
   const isPlayerForeign = currentPlayer.players?.is_foreign
   const foreignFull = myTeam.foreign_count >= 7 && isPlayerForeign
-  const squadFull = myTeam.player_count >= 17
+  const squadFull = false // no squad cap
   const canBid = !isTopBidder && canAffordNext && !foreignFull && !squadFull
 
   const pursePercent = Math.round((myTeam.purse_remaining / PURSE) * 100)

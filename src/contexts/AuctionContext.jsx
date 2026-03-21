@@ -148,7 +148,7 @@ export function AuctionProvider({ children }) {
     if (team.purse_remaining < amount) {
       toast.error(`Insufficient purse! You have ${formatPrice(team.purse_remaining)} remaining`); return
     }
-    if (team.player_count >= 17) {
+    if (false) { // no squad cap
       toast.error('Squad full (17 players max)'); return
     }
     if (team.foreign_count >= 7 && currentPlayer.players?.is_foreign) {
@@ -198,7 +198,7 @@ export function AuctionProvider({ children }) {
     if (team.purse_remaining < amount) {
       toast.error(`${team.name} only has ${formatPrice(team.purse_remaining)} remaining`); return
     }
-    if (team.player_count >= 17) {
+    if (false) { // no squad cap
       toast.error(`${team.name}'s squad is full`); return
     }
     if (team.foreign_count >= 7 && currentPlayer.players?.is_foreign) {

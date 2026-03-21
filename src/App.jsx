@@ -10,6 +10,7 @@ import TransferWindow from './pages/TransferWindow'
 import MatchDayTracker from './pages/MatchDayTracker'
 import SeasonEnd from './pages/SeasonEnd'
 import Rules from './pages/Rules'
+import TeamSelection from './pages/TeamSelection'
 
 export default function App() {
   return (
@@ -38,6 +39,7 @@ export default function App() {
           <Route path="/room/:roomId/matchday" element={<MatchDayTracker />} />
           <Route path="/room/:roomId/season" element={<SeasonEnd />} />
           <Route path="/room/:roomId/rules" element={<Rules />} />
+          <Route path="/room/:roomId/selection" element={<TeamSelection />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </AuctionProvider>
