@@ -66,5 +66,5 @@ src/pages/       — 8 pages (Landing, Auction, Squads, Leaderboard, Transfers, 
 src/components/  — 10 components
 src/contexts/    — AuctionContext (all real-time state)
 src/utils/       — bid rules, fantasy points calculator
-supabase/        — setup.sql (everything in one file)
+supabase/        — setup.sql (everything in one file) 
 ```
