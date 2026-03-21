@@ -51,12 +51,23 @@ export default function AdminPanel() {
       // Route through Supabase Edge Function proxy — API key never touches the browser
       const data = await callClaudeWithSearch([{
         role: 'user',
-        content: `Search for the full scorecard of this IPL match: "${matchInput.trim()}"
-Use web search to find the complete scorecard from Cricbuzz, ESPNcricinfo, or any cricket stats site.
-Once you have it, extract performance data for these specific players only:
-${playerNames.join(', ')}
-${buildScorecardPrompt('[fetched from web search]', playerNames).split('\n').slice(4).join('\n')}`,
-      }])
+        content: `Search cricbuzz.com for the scorecard of this IPL 2026 match: "${matchInput.trim()}"
+
+Extract stats for ONLY these players: ${playerNames.join(', ')}
+
+Your response must be ONLY a JSON array. No intro, no markdown, no explanation.
+Start with [ and end with ]. Nothing else.
+
+Format:
+[{"player_name":"Virat Kohli","did_not_play":false,"batting":{"runs":45,"balls":32,"fours":4,"sixes":2,"dismissed":true},"bowling":null,"fielding":{"catches":1,"runouts":0,"stumpings":0}}]
+
+Rules:
+- did_not_play: true if player not in scorecard
+- batting: null if player did not bat
+- bowling: null if player did not bowl
+- fielding always included with catches/runouts/stumpings
+Start the JSON array now:`
+      }], 3000)
 
       const text = extractText(data)
       if (!text) throw new Error('Claude returned no text — try a more specific match name')
@@ -113,39 +124,54 @@ ${buildScorecardPrompt('[fetched from web search]', playerNames).split('\n').sli
     }
   }
 
-  /** Sync IPL 2026 player team assignments */
+  /** Sync IPL 2026 player team assignments - one team at a time from Cricbuzz */
   async function syncPlayers() {
     setSyncingData('players')
-    setSyncStatus('🔍 Fetching IPL 2026 team rosters...')
+    const teams = ['MI', 'CSK', 'RCB', 'KKR', 'DC', 'SRH', 'RR', 'PBKS', 'LSG', 'GT']
+    const teamNames = {
+      MI: 'Mumbai Indians', CSK: 'Chennai Super Kings', RCB: 'Royal Challengers Bengaluru',
+      KKR: 'Kolkata Knight Riders', DC: 'Delhi Capitals', SRH: 'Sunrisers Hyderabad',
+      RR: 'Rajasthan Royals', PBKS: 'Punjab Kings', LSG: 'Lucknow Super Giants', GT: 'Gujarat Titans',
+    }
+    let totalUpdated = 0
+
     try {
-      const playerNames = PLAYERS.map(p => p.name).join(', ')
-      const data = await callClaudeWithSearch([{
-        role: 'user',
-        content: `Search for IPL 2026 team squads. For each player below find their IPL 2026 team.
+      for (const teamCode of teams) {
+        setSyncStatus(`🔍 Fetching ${teamNames[teamCode]} squad from Cricbuzz...`)
 
-Players: ${playerNames}
+        const data = await callClaudeWithSearch([{
+          role: 'user',
+          content: `Go to cricbuzz.com and search for the ${teamNames[teamCode]} IPL 2026 squad / team page.
 
-CRITICAL: Respond with ONLY a raw JSON array. No explanation, no markdown, no code fences, nothing else before or after the array.
+List every player in their IPL 2026 squad.
 
-Format exactly like this:
-[{"id":"p001","team_2026":"RCB"},{"id":"p002","team_2026":"MI"}]
+From this list, find which of these players are in ${teamNames[teamCode]}:
+${PLAYERS.map(p => `${p.id}: ${p.name}`).join('\n')}
 
-Team codes: MI CSK RCB KKR DC SRH RR PBKS LSG GT
-Cover every player. If not in IPL 2026 use their last known team.`
-      }], 2000)
+CRITICAL: Reply with ONLY a raw JSON array, nothing else, no explanation, no markdown:
+[{"id":"p001"},{"id":"p039"}]
 
-      setSyncStatus('📝 Saving player teams...')
-      const text = extractText(data)
-      const updates = parseJSON(text)
+Only include players who are confirmed in ${teamNames[teamCode]}'s IPL 2026 squad.`
+        }], 1500)
 
-      for (const u of updates) {
-        if (u.id && u.team_2026) {
-          await supabase.from('players').update({ team: u.team_2026 }).eq('id', u.id)
+        const text = extractText(data)
+        let players = []
+        try {
+          players = parseJSON(text)
+        } catch {
+          continue // skip this team if parse fails, don't abort all
+        }
+
+        for (const p of players) {
+          if (p.id) {
+            await supabase.from('players').update({ team: teamCode }).eq('id', p.id)
+            totalUpdated++
+          }
         }
       }
 
       setSyncStatus('')
-      toast.success(`✅ Updated ${updates.length} player teams!`)
+      toast.success(`✅ Updated ${totalUpdated} players from Cricbuzz!`)
     } catch (err) {
       toast.error(err.message || 'Player sync failed')
       setSyncStatus('')
@@ -157,33 +183,45 @@ Cover every player. If not in IPL 2026 use their last known team.`
   /** Sync IPL 2026 match schedule */
   async function syncSchedule() {
     setSyncingData('schedule')
-    setSyncStatus('📅 Fetching IPL 2026 schedule...')
+    setSyncStatus('📅 Fetching IPL 2026 schedule from Cricbuzz...')
     try {
       const data = await callClaudeWithSearch([{
         role: 'user',
-        content: `Search for the IPL 2026 cricket match schedule / fixtures.
+        content: `Go to cricbuzz.com or iplt20.com and find the full IPL 2026 match schedule.
 
-Return ONLY a JSON array, no markdown, no backticks:
-[{"match_number": 1, "team1": "CSK", "team2": "MI", "match_date": "2026-03-22"}]
+Your response must be ONLY a JSON array. No introduction, no explanation, no markdown fences.
+Start your response with [ and end with ]. Nothing before or after.
 
-Use team codes: MI, CSK, RCB, KKR, DC, SRH, RR, PBKS, LSG, GT
-Include as many confirmed matches as possible.`
-      }], 2000)
+Each match must follow this exact structure:
+[
+{"match_number":1,"team1":"CSK","team2":"MI","match_date":"2026-03-22"},
+{"match_number":2,"team1":"GT","team2":"RR","match_date":"2026-03-23"}
+]
+
+Only use these team codes: MI CSK RCB KKR DC SRH RR PBKS LSG GT
+Include every match you can find. Start the JSON array now:`
+      }], 3000)
 
       setSyncStatus('📥 Saving schedule...')
       const text = extractText(data)
       const matches = parseJSON(text)
 
-      const rows = matches.map(m => ({
-        auction_room_id: roomId,
-        name: `${m.team1} vs ${m.team2}`,
-        match_number: m.match_number,
-        team1: m.team1,
-        team2: m.team2,
-        match_date: m.match_date || null,
-        status: 'upcoming',
-        is_today: false,
-      }))
+      if (!Array.isArray(matches) || matches.length === 0) {
+        throw new Error('No matches found — try again')
+      }
+
+      const rows = matches
+        .filter(m => m.team1 && m.team2)
+        .map(m => ({
+          auction_room_id: roomId,
+          name: `${m.team1} vs ${m.team2}`,
+          match_number: m.match_number || null,
+          team1: m.team1,
+          team2: m.team2,
+          match_date: m.match_date || null,
+          status: 'upcoming',
+          is_today: false,
+        }))
 
       for (let i = 0; i < rows.length; i += 20) {
         await supabase.from('matches')
@@ -191,7 +229,7 @@ Include as many confirmed matches as possible.`
       }
 
       setSyncStatus('')
-      toast.success(`✅ Saved ${matches.length} matches!`)
+      toast.success(`✅ Saved ${rows.length} matches!`)
     } catch (err) {
       toast.error(err.message || 'Schedule sync failed')
       setSyncStatus('')
@@ -220,16 +258,20 @@ Include as many confirmed matches as possible.`
       const today = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
       const res = await callClaudeWithSearch([{
         role: 'user',
-        content: `Search for any IPL 2026 cricket matches that were played today (${today}) or yesterday.
-        
-Find the complete scorecard(s) and extract performance data for these players only:
-${soldPlayerNames.join(', ')}
+        content: `Search cricbuzz.com for IPL 2026 matches played today (${today}) or yesterday.
 
-${buildScorecardPrompt('[fetched from web]', soldPlayerNames).split('\n').slice(4).join('\n')}
+Find the scorecard and extract stats for ONLY these players: ${soldPlayerNames.join(', ')}
 
-IMPORTANT: If multiple matches were played, include all of them. For each match, use this wrapper format:
-{"match_name": "MI vs CSK", "performances": [...array of player performances...]}`
-      }], 6000)
+Your response must be ONLY a JSON array. No intro, no markdown, no explanation.
+Start with [ and end with ]. Nothing else.
+
+Format:
+[{"match_name":"MI vs CSK","performances":[{"player_name":"Virat Kohli","did_not_play":false,"batting":{"runs":45,"balls":32,"fours":4,"sixes":2,"dismissed":true},"bowling":null,"fielding":{"catches":1,"runouts":0,"stumpings":0}}]}]
+
+If a player did not play set did_not_play to true and omit batting/bowling/fielding.
+If a player did not bat set batting to null. If did not bowl set bowling to null.
+Start the JSON array now:`
+      }], 4000)
 
       const text = extractText(res)
 
@@ -421,37 +463,26 @@ IMPORTANT: If multiple matches were played, include all of them. For each match,
           </div>
         </div>
 
-        {/* Sync Players & Schedule — one-time season setup */}
+        {/* Season Setup */}
         <div className="card p-4 space-y-3">
-          <h2 className="font-bold">🌐 Season Setup (run once)</h2>
+          <h2 className="font-bold">📅 Sync Match Schedule</h2>
           <p className="text-xs text-white/40 font-mono">
-            Click each button once at season start. Do Players first, then Schedule.
+            Click once at season start — fetches the full IPL 2026 match schedule.
           </p>
           {syncStatus && (
             <div className="bg-gold/5 border border-gold/20 rounded-lg p-2 font-mono text-xs text-gold/80 animate-pulse">
               {syncStatus}
             </div>
           )}
-          <div className="flex gap-3">
-            <button
-              onClick={syncPlayers}
-              disabled={syncingData}
-              className="btn-gold flex-1"
-            >
-              {syncingData === 'players'
-                ? <span className="flex items-center justify-center gap-2"><span className="w-3 h-3 border-2 border-black/30 border-t-black rounded-full animate-spin"/>Syncing...</span>
-                : '👤 Sync Players'}
-            </button>
-            <button
-              onClick={syncSchedule}
-              disabled={syncingData}
-              className="btn-gold flex-1"
-            >
-              {syncingData === 'schedule'
-                ? <span className="flex items-center justify-center gap-2"><span className="w-3 h-3 border-2 border-black/30 border-t-black rounded-full animate-spin"/>Syncing...</span>
-                : '📅 Sync Schedule'}
-            </button>
-          </div>
+          <button
+            onClick={syncSchedule}
+            disabled={syncingData}
+            className="btn-gold w-full"
+          >
+            {syncingData === 'schedule'
+              ? <span className="flex items-center justify-center gap-2"><span className="w-3 h-3 border-2 border-black/30 border-t-black rounded-full animate-spin"/>Syncing...</span>
+              : '📅 Sync Schedule'}
+          </button>
         </div>
 
         {/* Daily score update */}
@@ -518,7 +549,266 @@ IMPORTANT: If multiple matches were played, include all of them. For each match,
             </table>
           </div>
         </div>
+
+        {/* Fantasy Points Rules */}
+        <PointsRules />
+
+        {/* Full Player Browser */}
+        <PlayerBrowser />
+
       </div>
+    </div>
+  )
+}
+
+function PointsRules() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="card overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between p-4 hover:bg-bg-elevated/30 transition-colors"
+      >
+        <h2 className="font-bold">📋 Fantasy Points Rules</h2>
+        <span className="text-white/40 font-mono text-sm">{open ? '▲ Hide' : '▼ Show'}</span>
+      </button>
+
+      {open && (
+        <div className="border-t border-bg-border p-4 grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
+
+          {/* Batting */}
+          <div>
+            <div className="font-bold text-gold mb-3 flex items-center gap-2">🏏 Batting</div>
+            <table className="w-full text-xs">
+              <tbody className="divide-y divide-bg-border/40">
+                {[
+                  ['Run scored', '+1'],
+                  ['Boundary (4)', '+1'],
+                  ['Six', '+3'],
+                  ['Duck (out for 0)', '−2'],
+                  ['30-run bonus', '+4'],
+                  ['50-run bonus', '+6'],
+                  ['Century bonus', '+8'],
+                ].map(([label, pts]) => <PointRow key={label} label={label} pts={pts} />)}
+              </tbody>
+            </table>
+            <div className="mt-3 font-bold text-white/50 text-xs mb-2">Strike Rate (10+ balls)</div>
+            <table className="w-full text-xs">
+              <tbody className="divide-y divide-bg-border/40">
+                {[
+                  ['Below 50', '−4'],
+                  ['50 – 70', '−2'],
+                  ['70 – 130', '0'],
+                  ['130 – 150', '+2'],
+                  ['150 – 200', '+4'],
+                  ['Above 200', '+6'],
+                ].map(([label, pts]) => <PointRow key={label} label={label} pts={pts} />)}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Bowling */}
+          <div>
+            <div className="font-bold text-gold mb-3 flex items-center gap-2">🎳 Bowling</div>
+            <table className="w-full text-xs">
+              <tbody className="divide-y divide-bg-border/40">
+                {[
+                  ['Wicket', '+15'],
+                  ['Maiden over', '+12'],
+                  ['Dot ball', '+1'],
+                  ['Wide', '−2'],
+                  ['No ball', '−5'],
+                  ['3-wicket haul bonus', '+4'],
+                  ['4-wicket haul bonus', '+8'],
+                  ['5-wicket haul bonus', '+12'],
+                ].map(([label, pts]) => <PointRow key={label} label={label} pts={pts} />)}
+              </tbody>
+            </table>
+            <div className="mt-3 font-bold text-white/50 text-xs mb-2">Economy Rate (1+ over)</div>
+            <table className="w-full text-xs">
+              <tbody className="divide-y divide-bg-border/40">
+                {[
+                  ['Below 5', '+6'],
+                  ['5 – 7', '+2'],
+                  ['7 – 10', '0'],
+                  ['10 – 12', '−2'],
+                  ['Above 12', '−6'],
+                ].map(([label, pts]) => <PointRow key={label} label={label} pts={pts} />)}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Fielding + Rules */}
+          <div>
+            <div className="font-bold text-gold mb-3 flex items-center gap-2">🧤 Fielding</div>
+            <table className="w-full text-xs">
+              <tbody className="divide-y divide-bg-border/40">
+                {[
+                  ['Catch', '+8'],
+                  ['3-catch bonus', '+4'],
+                  ['Run out', '+6'],
+                  ['Stumping', '+6'],
+                ].map(([label, pts]) => <PointRow key={label} label={label} pts={pts} />)}
+              </tbody>
+            </table>
+
+            <div className="mt-4 font-bold text-white/50 text-xs mb-2">Squad Rules</div>
+            <div className="space-y-1.5 text-xs text-white/50 font-mono">
+              {[
+                '₹100Cr purse per team',
+                'Max 17 players, min 14',
+                'Max 7 overseas players',
+                'Top 11 count for points',
+                'Max 5 overseas in XI',
+                '3 lifelines per team',
+                'Historical points follow player in trades',
+              ].map(r => (
+                <div key={r} className="flex items-start gap-2">
+                  <span className="text-gold mt-0.5">·</span>
+                  <span>{r}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PointRow({ label, pts }) {
+  const isPos = pts.startsWith('+')
+  const isNeg = pts.startsWith('−')
+  return (
+    <tr>
+      <td className="py-1.5 text-white/60">{label}</td>
+      <td className={`py-1.5 text-right font-bold font-mono ${isPos ? 'text-sold' : isNeg ? 'text-danger' : 'text-white/40'}`}>
+        {pts}
+      </td>
+    </tr>
+  )
+}
+
+function PlayerBrowser() {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState('All')
+  const [foreignFilter, setForeignFilter] = useState('All')
+  const [selected, setSelected] = useState(null)
+
+  const ROLE_CLASS = { BAT: 'role-badge-bat', BWL: 'role-badge-bwl', AR: 'role-badge-ar', WK: 'role-badge-wk' }
+
+  const filtered = PLAYERS.filter(p => {
+    if (roleFilter !== 'All' && p.role !== roleFilter) return false
+    if (foreignFilter === 'Foreign' && !p.is_foreign) return false
+    if (foreignFilter === 'Indian' && p.is_foreign) return false
+    if (search && !p.name.toLowerCase().includes(search.toLowerCase()) &&
+        !p.team?.toLowerCase().includes(search.toLowerCase())) return false
+    return true
+  })
+
+  return (
+    <div className="card overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between p-4 hover:bg-bg-elevated/30 transition-colors"
+      >
+        <h2 className="font-bold">👤 Player Browser <span className="text-white/30 font-normal text-sm">({PLAYERS.length} players)</span></h2>
+        <span className="text-white/40 font-mono text-sm">{open ? '▲ Hide' : '▼ Show'}</span>
+      </button>
+
+      {open && (
+        <div className="border-t border-bg-border">
+          {/* Filters */}
+          <div className="p-3 border-b border-bg-border space-y-2">
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search name or team..."
+              className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-sm text-white focus:border-gold/40 outline-none"
+            />
+            <div className="flex gap-1.5 flex-wrap">
+              {['All','BAT','BWL','AR','WK'].map(r => (
+                <button key={r} onClick={() => setRoleFilter(r)}
+                  className={`px-2.5 py-0.5 rounded text-xs font-bold transition-all ${roleFilter === r ? 'bg-gold text-black' : 'border border-bg-border text-white/40 hover:text-white'}`}>
+                  {r}
+                </button>
+              ))}
+              <div className="flex-1" />
+              {['All','Indian','Foreign'].map(f => (
+                <button key={f} onClick={() => setForeignFilter(f)}
+                  className={`px-2.5 py-0.5 rounded text-xs transition-all ${foreignFilter === f ? 'bg-electric/20 text-electric border border-electric/40' : 'border border-bg-border text-white/30 hover:text-white'}`}>
+                  {f}
+                </button>
+              ))}
+            </div>
+            <div className="text-xs text-white/25 font-mono">{filtered.length} players shown</div>
+          </div>
+
+          {/* Player list + detail panel */}
+          <div className="flex h-80">
+            {/* List */}
+            <div className="w-1/2 border-r border-bg-border overflow-y-auto">
+              {filtered.map(p => {
+                const rc = ROLE_CLASS[p.role] || ROLE_CLASS.BAT
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() => setSelected(p)}
+                    className={`flex items-center gap-2 px-3 py-2.5 border-b border-bg-border/40 cursor-pointer transition-colors ${selected?.id === p.id ? 'bg-gold/10' : 'hover:bg-bg-elevated/40'}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className={`font-medium text-sm truncate ${selected?.id === p.id ? 'text-gold' : ''}`}>{p.name}</div>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <span className={`${rc} text-xs`} style={{ fontSize: '9px', padding: '1px 4px' }}>{p.role}</span>
+                        <span className="text-xs text-white/30 font-mono">{p.team}</span>
+                        {p.is_foreign && <span className="text-xs">🌍</span>}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Detail panel */}
+            <div className="w-1/2 p-4 overflow-y-auto">
+              {selected ? (
+                <div className="space-y-3">
+                  <div>
+                    <div className="font-bold text-lg leading-tight">{selected.name}</div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={`${ROLE_CLASS[selected.role]} text-xs`}>{selected.role}</span>
+                      <span className="text-xs text-white/40 font-mono">{selected.team}</span>
+                      {selected.is_foreign && <span className="text-xs text-yellow-400">🌍 Overseas</span>}
+                    </div>
+                    <div className="text-xs text-white/30 font-mono mt-1">{selected.nationality}</div>
+                  </div>
+                  <div className="text-xs text-white/25 font-mono">Base Price: <span className="text-gold">₹20L</span></div>
+                  {selected.batting && (
+                    <div className="bg-bg-deep rounded-lg p-3">
+                      <div className="text-xs text-white/35 font-mono uppercase tracking-wider mb-1">🏏 Batting (IPL 2025)</div>
+                      <div className="text-xs text-white/70 font-mono leading-relaxed">{selected.batting}</div>
+                    </div>
+                  )}
+                  {selected.bowling && (
+                    <div className="bg-bg-deep rounded-lg p-3">
+                      <div className="text-xs text-white/35 font-mono uppercase tracking-wider mb-1">🎳 Bowling (IPL 2025)</div>
+                      <div className="text-xs text-white/70 font-mono leading-relaxed">{selected.bowling}</div>
+                    </div>
+                  )}
+                  {!selected.batting && !selected.bowling && (
+                    <div className="text-xs text-white/20 font-mono italic">No 2025 stats available</div>
+                  )}
+                </div>
+              ) : (
+                <div className="h-full flex items-center justify-center text-white/20 font-mono text-xs text-center">
+                  Click a player<br/>to see their stats
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
