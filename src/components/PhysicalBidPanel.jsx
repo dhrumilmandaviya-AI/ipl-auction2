@@ -2,15 +2,15 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuction } from '../contexts/AuctionContext'
 import { formatPrice, BASE_PRICE } from '../utils/auction'
+import PLAYERS from '../data/players'
 
 export default function PhysicalBidPanel({ currentPlayer }) {
-  const { teams, markSoldPhysical, markUnsold } = useAuction()
+  const { teams, markSoldPhysical, markUnsold, soldPlayers } = useAuction()
   const [selectedTeamId, setSelectedTeamId] = useState('')
   const [priceInput, setPriceInput] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [selling, setSelling] = useState(false)
 
-  // Reset when player changes
   useEffect(() => {
     setSelectedTeamId('')
     setPriceInput('')
@@ -21,12 +21,23 @@ export default function PhysicalBidPanel({ currentPlayer }) {
 
   const playerName = currentPlayer.players?.name || 'Player'
   const isPlayerForeign = currentPlayer.players?.is_foreign
+  const iplTeam = currentPlayer.players?.team
   const finalPriceLakhs = priceInput ? Math.round(parseFloat(priceInput) * 100) : 0
   const selectedTeam = teams.find(t => t.id === selectedTeamId)
+
+  // Count how many players from this IPL team each fantasy team already has
+  function iplTeamCount(teamId) {
+    if (!iplTeam) return 0
+    return (soldPlayers || []).filter(ap =>
+      ap.sold_to_team_id === teamId &&
+      PLAYERS.find(p => p.id === ap.player_id)?.team === iplTeam
+    ).length
+  }
 
   function teamStatus(team) {
     if (team.player_count >= 17) return { blocked: true, reason: 'Squad full (17/17)' }
     if (isPlayerForeign && team.foreign_count >= 7) return { blocked: true, reason: 'Overseas limit (7/7)' }
+    if (iplTeam && iplTeamCount(team.id) >= 4) return { blocked: true, reason: `${iplTeam} limit (4/4)` }
     return { blocked: false, reason: null }
   }
 
@@ -99,7 +110,10 @@ export default function PhysicalBidPanel({ currentPlayer }) {
                     <div className={`text-xs font-mono font-bold ${team.purse_remaining < 100 ? 'text-danger' : 'text-sold'}`}>
                       {formatPrice(team.purse_remaining)}
                     </div>
-                    <div className="text-xs text-white/25 font-mono">{team.player_count}p · {team.foreign_count}🌍</div>
+                    <div className="text-xs text-white/25 font-mono">
+                      {team.player_count}p · {team.foreign_count}🌍
+                      {iplTeam ? ` · ${iplTeamCount(team.id)}/4 ${iplTeam}` : ''}
+                    </div>
                   </div>
                 </div>
                 {blocked && reason && (

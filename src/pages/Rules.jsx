@@ -56,6 +56,7 @@ function AuctionRules() {
         <RuleRow label="Minimum players" value="14" />
         <RuleRow label="Maximum overseas players" value="7" />
         <RuleRow label="Maximum overseas in playing XI" value="5" />
+        <RuleRow label="Max players from one IPL team" value="4" highlight />
         <RuleRow label="Players counted for fantasy points" value="Top 11" />
       </Section>
 

@@ -142,31 +142,39 @@ export function AuctionProvider({ children }) {
     const team = teams.find(t => t.id === user.teamId)
     if (!team) return
 
-    // Squad lock: bidding only allowed during active or reauction phases
     if (room && !['active', 'reauction'].includes(room.status)) {
-      toast.error('Auction is not active')
-      return
+      toast.error('Auction is not active'); return
     }
-
     if (team.purse_remaining < amount) {
-      toast.error(`Insufficient purse! You have ${team.purse_remaining}L remaining`)
-      return
+      toast.error(`Insufficient purse! You have ${formatPrice(team.purse_remaining)} remaining`); return
     }
     if (team.player_count >= 17) {
-      toast.error('Squad full (17 players max)')
-      return
+      toast.error('Squad full (17 players max)'); return
     }
-    // Foreign player limit
-    if (team.foreign_count >= 7) {
-      const player = currentPlayer.players
-      if (player?.is_foreign) {
-        toast.error('Foreign player limit reached (7 max)')
-        return
-      }
+    if (team.foreign_count >= 7 && currentPlayer.players?.is_foreign) {
+      toast.error('Foreign player limit reached (7 max)'); return
     }
     if (currentPlayer.current_bidder_team_id === user.teamId) {
-      toast.error("You're already the highest bidder!")
-      return
+      toast.error("You're already the highest bidder!"); return
+    }
+    // Max 4 players from same IPL team
+    const iplTeam = currentPlayer.players?.team
+    if (iplTeam) {
+      const { count } = await supabase
+        .from('auction_players')
+        .select('*', { count: 'exact', head: true })
+        .eq('auction_room_id', room.id)
+        .eq('sold_to_team_id', user.teamId)
+        .eq('status', 'sold')
+        .eq('players.team', iplTeam)
+      // join needed — check via soldPlayers in memory instead
+      const iplCount = soldPlayers.filter(ap =>
+        ap.sold_to_team_id === user.teamId &&
+        (PLAYERS.find(p => p.id === ap.player_id)?.team === iplTeam)
+      ).length
+      if (iplCount >= 4) {
+        toast.error(`Max 4 players from ${iplTeam} allowed`); return
+      }
     }
 
     const { error } = await supabase.rpc('place_bid', {
@@ -176,30 +184,38 @@ export function AuctionProvider({ children }) {
       p_room_id: room.id,
     })
     if (error) toast.error(error.message || 'Bid failed')
-    else toast.success(`Bid placed: ${amount}L`)
-  }, [user, currentPlayer, teams, room])
+    else toast.success(`Bid placed: ${formatPrice(amount)}`)
+  }, [user, currentPlayer, teams, room, soldPlayers])
 
   /** Admin: place a bid on behalf of any team (physical auction mode) */
   const placeBidForTeam = useCallback(async (teamId, amount) => {
     if (!currentPlayer || !room) return
     if (!['active', 'reauction'].includes(room.status)) {
-      toast.error('Auction is not active')
-      return
+      toast.error('Auction is not active'); return
     }
     const team = teams.find(t => t.id === teamId)
     if (!team) return
     if (team.purse_remaining < amount) {
-      toast.error(`${team.name} only has ${formatPrice(team.purse_remaining)} remaining`)
-      return
+      toast.error(`${team.name} only has ${formatPrice(team.purse_remaining)} remaining`); return
     }
     if (team.player_count >= 17) {
-      toast.error(`${team.name}'s squad is full`)
-      return
+      toast.error(`${team.name}'s squad is full`); return
     }
     if (team.foreign_count >= 7 && currentPlayer.players?.is_foreign) {
-      toast.error(`${team.name} has reached overseas player limit`)
-      return
+      toast.error(`${team.name} has reached overseas player limit`); return
     }
+    // Max 4 from same IPL team
+    const iplTeam = currentPlayer.players?.team
+    if (iplTeam) {
+      const iplCount = soldPlayers.filter(ap =>
+        ap.sold_to_team_id === teamId &&
+        (PLAYERS.find(p => p.id === ap.player_id)?.team === iplTeam)
+      ).length
+      if (iplCount >= 4) {
+        toast.error(`${team.name} already has 4 players from ${iplTeam}`); return
+      }
+    }
+
     const { error } = await supabase.rpc('place_bid', {
       p_auction_player_id: currentPlayer.id,
       p_team_id: teamId,
@@ -208,7 +224,7 @@ export function AuctionProvider({ children }) {
     })
     if (error) toast.error(error.message || 'Bid failed')
     else toast.success(`${team.name} bid ${formatPrice(amount)}`)
-  }, [currentPlayer, teams, room])
+  }, [currentPlayer, teams, room, soldPlayers])
 
   /** Admin: mark sold (physical mode) — direct team + price, no incremental bidding */
   const markSoldPhysical = useCallback(async (teamId, finalPrice) => {
@@ -219,6 +235,18 @@ export function AuctionProvider({ children }) {
     if (team && team.purse_remaining < finalPrice) {
       toast.error(`${team.name} only has ${formatPrice(team.purse_remaining)} — can't afford ${formatPrice(finalPrice)}`)
       return
+    }
+    // Max 4 from same IPL team
+    const iplTeam = currentPlayer.players?.team
+    if (iplTeam) {
+      const iplCount = soldPlayers.filter(ap =>
+        ap.sold_to_team_id === teamId &&
+        (PLAYERS.find(p => p.id === ap.player_id)?.team === iplTeam)
+      ).length
+      if (iplCount >= 4) {
+        toast.error(`${team?.name} already has 4 players from ${iplTeam}`)
+        return
+      }
     }
     const { error } = await supabase.rpc('mark_sold_physical', {
       p_auction_player_id: currentPlayer.id,
@@ -285,15 +313,41 @@ export function AuctionProvider({ children }) {
     else toast('🎯 Lifeline used!', { icon: '⚡' })
   }, [user, currentPlayer, teams, room])
 
-  /** Admin: start auction */
+  /** Admin: start auction — shuffles player order randomly */
   const startAuction = useCallback(async () => {
     if (!room) return
+
+    // Fetch all pending auction players and shuffle their order_index
+    const { data: apList } = await supabase
+      .from('auction_players')
+      .select('id')
+      .eq('auction_room_id', room.id)
+      .eq('status', 'pending')
+
+    if (apList && apList.length > 0) {
+      // Fisher-Yates shuffle
+      const ids = apList.map(ap => ap.id)
+      for (let i = ids.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [ids[i], ids[j]] = [ids[j], ids[i]]
+      }
+      // Update order_index in batches
+      for (let i = 0; i < ids.length; i += 50) {
+        const batch = ids.slice(i, i + 50)
+        await Promise.all(batch.map((id, idx) =>
+          supabase.from('auction_players')
+            .update({ order_index: i + idx })
+            .eq('id', id)
+        ))
+      }
+    }
+
     const { error } = await supabase
       .from('auction_rooms')
       .update({ status: 'active' })
       .eq('id', room.id)
     if (error) toast.error(error.message)
-    else toast.success('Auction started!')
+    else toast.success('Auction started! Player order randomised 🎲')
   }, [room])
 
   /** Admin: close auction */

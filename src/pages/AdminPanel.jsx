@@ -212,10 +212,10 @@ Include every match you can find. Start the JSON array now:`
 
       const rows = matches
         .filter(m => m.team1 && m.team2)
-        .map(m => ({
+        .map((m, i) => ({
           auction_room_id: roomId,
-          name: `${m.team1} vs ${m.team2}`,
-          match_number: m.match_number || null,
+          name: `${m.team1} vs ${m.team2} (M${m.match_number || i + 1})`,
+          match_number: m.match_number || i + 1,
           team1: m.team1,
           team2: m.team2,
           match_date: m.match_date || null,
