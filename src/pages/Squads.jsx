@@ -19,8 +19,13 @@ export default function Squads() {
   }, [roomId])
 
   useEffect(() => {
-    if (teams.length > 0 && !selectedTeam) setSelectedTeam(teams[0].id)
-  }, [teams])
+    if (teams.length > 0 && !selectedTeam) {
+      // Default to the current user's own team first
+      const myTeamId = user?.teamId
+      const found = myTeamId && teams.find(t => t.id === myTeamId)
+      setSelectedTeam(found ? myTeamId : teams[0].id)
+    }
+  }, [teams, user])
 
   useEffect(() => {
     if (!teams.length) return

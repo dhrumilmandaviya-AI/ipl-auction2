@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { TIMER_SECONDS, DRAMA_TEXTS } from '../utils/auction'
 
 const RADIUS = 54
@@ -6,15 +6,32 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 
 export default function CountdownTimer({ lastBidAt, onExpire, isAdmin, onSold }) {
   const [seconds, setSeconds] = useState(TIMER_SECONDS)
-  const [phase, setPhase] = useState('bidding') // 'bidding' | 'going_once' | 'going_twice' | 'drama' | 'sold'
+  const [phase, setPhase] = useState('bidding')
   const [dramaText, setDramaText] = useState('')
-  const expiredRef = useRef(false)
-  const intervalRef = useRef(null)
+  const expiredRef   = useRef(false)
+  const soldCalledRef = useRef(false)  // prevent double markSold
+  const intervalRef  = useRef(null)
+  const timeoutsRef  = useRef([])
+  // Keep onExpire in a ref so it never goes in the dependency array
+  const onExpireRef  = useRef(onExpire)
+  useEffect(() => { onExpireRef.current = onExpire }, [onExpire])
+
+  function clearAllTimeouts() {
+    timeoutsRef.current.forEach(t => clearTimeout(t))
+    timeoutsRef.current = []
+  }
 
   useEffect(() => {
-    if (!lastBidAt) { setSeconds(TIMER_SECONDS); setPhase('bidding'); return }
+    // Reset everything when player changes (including when lastBidAt goes null)
+    clearInterval(intervalRef.current)
+    clearAllTimeouts()
     expiredRef.current = false
+    soldCalledRef.current = false
+    setSeconds(TIMER_SECONDS)
     setPhase('bidding')
+    setDramaText('')
+
+    if (!lastBidAt) return
 
     function tick() {
       const elapsed = (Date.now() - new Date(lastBidAt).getTime()) / 1000
@@ -23,34 +40,49 @@ export default function CountdownTimer({ lastBidAt, onExpire, isAdmin, onSold })
 
       if (remaining <= 0 && !expiredRef.current) {
         expiredRef.current = true
+        clearInterval(intervalRef.current)
         setPhase('going_once')
 
-        setTimeout(() => setPhase('going_twice'), 2000)
-        setTimeout(() => {
+        const t1 = setTimeout(() => setPhase('going_twice'), 2000)
+        const t2 = setTimeout(() => {
           const text = DRAMA_TEXTS[Math.floor(Math.random() * DRAMA_TEXTS.length)]
           setDramaText(text)
           setPhase('drama')
         }, 4000)
-        setTimeout(() => {
+        const t3 = setTimeout(() => {
           setPhase('sold')
-          onExpire?.()
+          if (!soldCalledRef.current) {
+            soldCalledRef.current = true
+            onExpireRef.current?.()
+          }
         }, 9000)
+        timeoutsRef.current = [t1, t2, t3]
       }
     }
 
     tick()
     intervalRef.current = setInterval(tick, 100)
-    return () => clearInterval(intervalRef.current)
-  }, [lastBidAt, onExpire])
+
+    return () => {
+      clearInterval(intervalRef.current)
+      clearAllTimeouts()
+    }
+  }, [lastBidAt]) // ← onExpire intentionally NOT here
 
   const progress = Math.max(0, Math.min(1, seconds / TIMER_SECONDS))
   const strokeDashoffset = CIRCUMFERENCE * (1 - progress)
-
-  const timerColor =
-    seconds > 6 ? '#10b981' :
-    seconds > 3 ? '#f59e0b' : '#ef4444'
-
+  const timerColor = seconds > 6 ? '#10b981' : seconds > 3 ? '#f59e0b' : '#ef4444'
   const isCritical = seconds <= 3 && phase === 'bidding'
+
+  function handleSellEarly() {
+    clearInterval(intervalRef.current)
+    clearAllTimeouts()
+    setPhase('sold')
+    if (!soldCalledRef.current) {
+      soldCalledRef.current = true
+      onExpireRef.current?.()
+    }
+  }
 
   if (phase === 'sold') {
     return (
@@ -70,9 +102,7 @@ export default function CountdownTimer({ lastBidAt, onExpire, isAdmin, onSold })
 
   if (phase === 'going_once' || phase === 'going_twice' || phase === 'drama') {
     const text = phase === 'going_once' ? 'Going once...' :
-                 phase === 'going_twice' ? 'Going twice...' :
-                 dramaText
-
+                 phase === 'going_twice' ? 'Going twice...' : dramaText
     return (
       <div className="flex flex-col items-center gap-3 animate-countdown-pulse">
         <div className="text-5xl">{phase === 'drama' ? '👀' : '🔨'}</div>
@@ -81,10 +111,7 @@ export default function CountdownTimer({ lastBidAt, onExpire, isAdmin, onSold })
           Last chance to bid...
         </div>
         {isAdmin && (
-          <button
-            onClick={() => { setPhase('sold'); onExpire?.() }}
-            className="btn-sold mt-1 text-sm py-2"
-          >
+          <button onClick={handleSellEarly} className="btn-sold mt-1 text-sm py-2">
             🔨 Sell Now
           </button>
         )}
@@ -114,7 +141,7 @@ export default function CountdownTimer({ lastBidAt, onExpire, isAdmin, onSold })
       </div>
       {isAdmin && (
         <button
-          onClick={() => { setPhase('sold'); onExpire?.() }}
+          onClick={handleSellEarly}
           className="text-xs text-white/30 hover:text-gold border border-bg-border hover:border-gold/30 px-3 py-1 rounded transition-all"
         >
           🔨 Sell Early

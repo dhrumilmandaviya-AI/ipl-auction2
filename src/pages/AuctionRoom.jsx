@@ -66,7 +66,9 @@ export default function AuctionRoom() {
     }))
   }, [pendingPlayers, currentPlayer?.id])
 
-  if (loading) {
+  const handleExpire = useCallback(async () => {
+    if (isAdmin && currentPlayer?.current_bid > 0) await markSold()
+  }, [isAdmin, currentPlayer?.id, currentPlayer?.current_bid, markSold])
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -141,8 +143,8 @@ export default function AuctionRoom() {
               <CountdownTimer
                 lastBidAt={currentPlayer.last_bid_at}
                 isAdmin={isAdmin}
-                onExpire={async () => { if (isAdmin && currentPlayer.current_bid > 0) await markSold() }}
-                onSold={async () => { if (isAdmin && currentPlayer.current_bid > 0) await markSold() }}
+                onExpire={handleExpire}
+                onSold={handleExpire}
               />
               {isAdmin && (
                 <button

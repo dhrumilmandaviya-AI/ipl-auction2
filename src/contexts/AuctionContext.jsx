@@ -258,14 +258,23 @@ export function AuctionProvider({ children }) {
     else toast.success(`🔨 Sold to ${team?.name} for ${formatPrice(finalPrice)}!`)
   }, [currentPlayer, room, teams])
 
+  const isSellingRef = useRef(false)
+
   const markSold = useCallback(async () => {
     if (!currentPlayer || !room) return
-    const { error } = await supabase.rpc('mark_sold', {
-      p_auction_player_id: currentPlayer.id,
-      p_room_id: room.id,
-    })
-    if (error) toast.error(error.message)
-    else toast.success('Player sold!')
+    if (isSellingRef.current) return  // already in progress
+    if (currentPlayer.status === 'sold') return  // already sold
+    isSellingRef.current = true
+    try {
+      const { error } = await supabase.rpc('mark_sold', {
+        p_auction_player_id: currentPlayer.id,
+        p_room_id: room.id,
+      })
+      if (error) toast.error(error.message)
+      else toast.success('Player sold!')
+    } finally {
+      isSellingRef.current = false
+    }
   }, [currentPlayer, room])
 
   /** Admin: move to next player */

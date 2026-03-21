@@ -31,7 +31,7 @@ export default function Navbar() {
 
   return (
     <nav className="bg-bg-card border-b border-bg-border sticky top-0 z-50 backdrop-blur-sm">
-      <div className="max-w-screen-2xl mx-auto px-4 py-3 flex items-center gap-4">
+      <div className="max-w-screen-2xl mx-auto px-4 py-3 flex items-center gap-3">
         {/* Logo */}
         <Link to="/" className="font-display text-2xl text-gold tracking-wider flex-shrink-0">
           IPL🏏
@@ -41,7 +41,7 @@ export default function Navbar() {
         {room && (
           <button
             onClick={copyCode}
-            className="hidden sm:flex items-center gap-1.5 bg-bg-deep border border-bg-border rounded-lg px-3 py-1.5 hover:border-gold/30 transition-all"
+            className="hidden sm:flex items-center gap-1.5 bg-bg-deep border border-bg-border rounded-lg px-3 py-1.5 hover:border-gold/30 transition-all flex-shrink-0"
           >
             <span className="text-xs text-white/40 font-mono">ROOM</span>
             <span className="font-display text-gold text-lg tracking-widest">{room.code}</span>
@@ -49,30 +49,23 @@ export default function Navbar() {
           </button>
         )}
 
-        {/* Room name */}
-        {room && (
-          <span className="text-white/40 text-sm font-mono hidden md:block truncate max-w-48">
-            {room.name}
-          </span>
-        )}
-
-        <div className="flex-1" />
-
-        {/* Nav links */}
-        <div className="flex gap-1">
-          {links.map(link => (
-            <Link
-              key={link.to}
-              to={link.to}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                isActive(link.to)
-                  ? 'bg-gold/15 text-gold border border-gold/30'
-                  : 'text-white/50 hover:text-white hover:bg-bg-elevated'
-              }`}
-            >
-              {link.label}
-            </Link>
-          ))}
+        {/* Nav links — scrollable so all tabs always reachable */}
+        <div className="flex-1 overflow-x-auto scrollbar-none">
+          <div className="flex gap-1 min-w-max">
+            {links.map(link => (
+              <Link
+                key={link.to}
+                to={link.to}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap flex-shrink-0 ${
+                  isActive(link.to)
+                    ? 'bg-gold/15 text-gold border border-gold/30'
+                    : 'text-white/50 hover:text-white hover:bg-bg-elevated'
+                }`}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </div>
         </div>
 
         {/* User badge */}
