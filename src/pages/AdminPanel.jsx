@@ -21,7 +21,7 @@ export default function AdminPanel() {
   const [search, setSearch] = useState('')
   const [matchInput, setMatchInput] = useState('')
   const [processingPoints, setProcessingPoints] = useState(false)
-  const [syncingData, setSyncingData] = useState(false)
+  const [syncingData, setSyncingData] = useState(null)
   const [syncStatus, setSyncStatus] = useState('')
   const [updatingScores, setUpdatingScores] = useState(false)
   const [openingTransfers, setOpeningTransfers] = useState(false)
@@ -113,64 +113,65 @@ ${buildScorecardPrompt('[fetched from web search]', playerNames).split('\n').sli
     }
   }
 
-  /** Scrape IPL 2026 player list + schedule from the web via Claude */
-  async function syncPlayersAndSchedule() {
-    setSyncingData(true)
-    setSyncStatus('🔍 Searching for IPL 2026 player list...')
+  /** Sync IPL 2026 player team assignments */
+  async function syncPlayers() {
+    setSyncingData('players')
+    setSyncStatus('🔍 Fetching IPL 2026 team rosters...')
     try {
-      // Step 1: Sync player team assignments for IPL 2026
-      const playerRes = await callClaudeWithSearch([{
+      const playerNames = PLAYERS.map(p => p.name).join(', ')
+      const data = await callClaudeWithSearch([{
         role: 'user',
-        content: `Search for the IPL 2026 auction results and each team's retained/bought players.
-        
-For each of these players, find their current IPL 2026 team (team they play for in IPL 2026):
-${PLAYERS.map(p => p.name).join(', ')}
+        content: `Search for IPL 2026 team squads and find which team each of these players belongs to in IPL 2026:
+${playerNames}
 
-Return ONLY a JSON array (no markdown) in this exact format:
-[{"id": "p001", "name": "Virat Kohli", "team_2026": "RCB", "is_foreign": false}]
+Return ONLY a JSON array, no markdown:
+[{"id": "p001", "team_2026": "RCB"}, {"id": "p002", "team_2026": "MI"}]
 
-Use the player IDs exactly as listed. If a player retired or is not in IPL 2026, still include them with their last known team.
-Cover ALL players in the list.`
-      }], 6000)
+Use these team codes only: MI, CSK, RCB, KKR, DC, SRH, RR, PBKS, LSG, GT
+Include all players. If a player is not in IPL 2026 keep their last known team.`
+      }], 2000)
 
-      setSyncStatus('📝 Updating player data...')
-      const playerText = extractText(playerRes)
-      const playerUpdates = parseJSON(playerText)
+      setSyncStatus('📝 Saving player teams...')
+      const text = extractText(data)
+      const updates = parseJSON(text)
 
-      // Update players table
-      for (const update of playerUpdates) {
-        await supabase.from('players')
-          .update({ team: update.team_2026 })
-          .eq('id', update.id)
+      for (const u of updates) {
+        if (u.id && u.team_2026) {
+          await supabase.from('players').update({ team: u.team_2026 }).eq('id', u.id)
+        }
       }
 
-      // Step 2: Fetch IPL 2026 schedule
-      setSyncStatus('📅 Fetching IPL 2026 match schedule...')
-      const scheduleRes = await callClaudeWithSearch([{
-        role: 'user',
-        content: `Search for the complete IPL 2026 match schedule / fixtures list.
-
-Return ONLY a JSON array (no markdown, no backticks) with ALL matches:
-[
-  {
-    "match_number": 1,
-    "team1": "CSK",
-    "team2": "MI", 
-    "match_date": "2026-03-22",
-    "venue": "Chepauk"
+      setSyncStatus('')
+      toast.success(`✅ Updated ${updates.length} player teams!`)
+    } catch (err) {
+      toast.error(err.message || 'Player sync failed')
+      setSyncStatus('')
+    } finally {
+      setSyncingData(false)
+    }
   }
-]
 
-Use the standard IPL team abbreviations: MI, CSK, RCB, KKR, DC, SRH, RR, PBKS, LSG, GT
-Include all ${74} league stage matches. If the full schedule isn't out yet, include as many confirmed matches as possible.`
-      }], 6000)
+  /** Sync IPL 2026 match schedule */
+  async function syncSchedule() {
+    setSyncingData('schedule')
+    setSyncStatus('📅 Fetching IPL 2026 schedule...')
+    try {
+      const data = await callClaudeWithSearch([{
+        role: 'user',
+        content: `Search for the IPL 2026 cricket match schedule / fixtures.
 
-      setSyncStatus('📥 Saving schedule to database...')
-      const scheduleText = extractText(scheduleRes)
-      const matches = parseJSON(scheduleText)
+Return ONLY a JSON array, no markdown, no backticks:
+[{"match_number": 1, "team1": "CSK", "team2": "MI", "match_date": "2026-03-22"}]
 
-      // Upsert matches into DB
-      const matchRows = matches.map(m => ({
+Use team codes: MI, CSK, RCB, KKR, DC, SRH, RR, PBKS, LSG, GT
+Include as many confirmed matches as possible.`
+      }], 2000)
+
+      setSyncStatus('📥 Saving schedule...')
+      const text = extractText(data)
+      const matches = parseJSON(text)
+
+      const rows = matches.map(m => ({
         auction_room_id: roomId,
         name: `${m.team1} vs ${m.team2}`,
         match_number: m.match_number,
@@ -181,17 +182,15 @@ Include all ${74} league stage matches. If the full schedule isn't out yet, incl
         is_today: false,
       }))
 
-      // Insert in batches
-      for (let i = 0; i < matchRows.length; i += 20) {
+      for (let i = 0; i < rows.length; i += 20) {
         await supabase.from('matches')
-          .upsert(matchRows.slice(i, i + 20), { onConflict: 'auction_room_id,name' })
+          .upsert(rows.slice(i, i + 20), { onConflict: 'auction_room_id,name' })
       }
 
-      await refreshAllPlayers()
       setSyncStatus('')
-      toast.success(`✅ Synced ${playerUpdates.length} players + ${matches.length} matches!`)
+      toast.success(`✅ Saved ${matches.length} matches!`)
     } catch (err) {
-      toast.error(err.message || 'Sync failed')
+      toast.error(err.message || 'Schedule sync failed')
       setSyncStatus('')
     } finally {
       setSyncingData(false)
@@ -420,23 +419,34 @@ IMPORTANT: If multiple matches were played, include all of them. For each match,
         </div>
 
         {/* Sync Players & Schedule — one-time season setup */}
-        <div className="card p-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1">
-              <h2 className="font-bold">🌐 Sync Players & Schedule</h2>
-              <p className="text-xs text-white/40 font-mono mt-1">
-                Click once at season start — Claude fetches IPL 2026 team rosters and the full 74-match schedule from the web.
-              </p>
-              {syncStatus && (
-                <div className="mt-2 bg-gold/5 border border-gold/20 rounded-lg p-2 font-mono text-xs text-gold/80 animate-pulse">
-                  {syncStatus}
-                </div>
-              )}
+        <div className="card p-4 space-y-3">
+          <h2 className="font-bold">🌐 Season Setup (run once)</h2>
+          <p className="text-xs text-white/40 font-mono">
+            Click each button once at season start. Do Players first, then Schedule.
+          </p>
+          {syncStatus && (
+            <div className="bg-gold/5 border border-gold/20 rounded-lg p-2 font-mono text-xs text-gold/80 animate-pulse">
+              {syncStatus}
             </div>
-            <button onClick={syncPlayersAndSchedule} disabled={syncingData} className="btn-gold flex-shrink-0">
-              {syncingData
-                ? <span className="flex items-center gap-2"><span className="w-3 h-3 border-2 border-black/30 border-t-black rounded-full animate-spin"/>Syncing...</span>
-                : '🌐 Sync Now'}
+          )}
+          <div className="flex gap-3">
+            <button
+              onClick={syncPlayers}
+              disabled={syncingData}
+              className="btn-gold flex-1"
+            >
+              {syncingData === 'players'
+                ? <span className="flex items-center justify-center gap-2"><span className="w-3 h-3 border-2 border-black/30 border-t-black rounded-full animate-spin"/>Syncing...</span>
+                : '👤 Sync Players'}
+            </button>
+            <button
+              onClick={syncSchedule}
+              disabled={syncingData}
+              className="btn-gold flex-1"
+            >
+              {syncingData === 'schedule'
+                ? <span className="flex items-center justify-center gap-2"><span className="w-3 h-3 border-2 border-black/30 border-t-black rounded-full animate-spin"/>Syncing...</span>
+                : '📅 Sync Schedule'}
             </button>
           </div>
         </div>
