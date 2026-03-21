@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { AuctionProvider } from './contexts/AuctionContext'
 import Landing from './pages/Landing'
@@ -12,10 +12,8 @@ import SeasonEnd from './pages/SeasonEnd'
 import Rules from './pages/Rules'
 
 export default function App() {
-  // Use the base path for GitHub Pages routing (e.g. /ipl-auction/)
-  const basename = import.meta.env.BASE_URL || '/'
   return (
-    <BrowserRouter basename={basename}>
+    <HashRouter>
       <AuctionProvider>
         <Toaster
           position="top-center"
@@ -43,6 +41,6 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </AuctionProvider>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
