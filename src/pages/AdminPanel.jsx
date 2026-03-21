@@ -40,19 +40,16 @@ export default function AdminPanel() {
 
   const adminCode = room ? `ADMIN_${room.code.slice(-4)}` : '...'
 
-  /** Apply selection logic: zero out points for players not in selected 15,
-   *  then zero out players outside top 11 of the selected 15 per team */
+  /** Apply selection logic: only top 11 from each team's season 15 count per match */
   async function applySelectionPoints(matchId) {
     const { data: selections } = await supabase
-      .from('team_match_selections')
+      .from('team_season_selections')
       .select('*')
-      .eq('match_id', matchId)
       .eq('auction_room_id', roomId)
 
-    if (!selections?.length) return // no selections made — all points count as-is
+    if (!selections?.length) return // no selections — all points count as-is
 
     for (const sel of selections) {
-      // Get all performances for this team in this match
       const { data: perfs } = await supabase
         .from('match_performances')
         .select('*')
@@ -62,21 +59,20 @@ export default function AdminPanel() {
       if (!perfs?.length) continue
 
       // Zero out players not in the selected 15
-      const notSelected = perfs.filter(p => !sel.player_ids.includes(p.player_id))
-      for (const p of notSelected) {
-        await supabase.from('match_performances')
-          .update({ counted_points: 0 })
-          .eq('id', p.id)
+      for (const p of perfs) {
+        if (!sel.player_ids.includes(p.player_id)) {
+          await supabase.from('match_performances')
+            .update({ counted_points: 0 })
+            .eq('id', p.id)
+        }
       }
 
-      // From the selected 15, pick top 11 by points (max 5 overseas)
+      // From selected 15, pick top 11 with max 5 overseas
       const inSelected = perfs
         .filter(p => sel.player_ids.includes(p.player_id))
         .sort((a, b) => b.total_points - a.total_points)
 
-      // Apply overseas cap — max 5 in top 11
       let overseasCount = 0
-      let domesticCount = 0
       const top11Ids = []
       for (const p of inSelected) {
         if (top11Ids.length >= 11) break
@@ -84,13 +80,10 @@ export default function AdminPanel() {
         if (playerData?.is_foreign) {
           if (overseasCount >= 5) continue
           overseasCount++
-        } else {
-          domesticCount++
         }
         top11Ids.push(p.player_id)
       }
 
-      // Set counted_points for top 11, zero for rest
       for (const p of inSelected) {
         await supabase.from('match_performances')
           .update({ counted_points: top11Ids.includes(p.player_id) ? p.total_points : 0 })
