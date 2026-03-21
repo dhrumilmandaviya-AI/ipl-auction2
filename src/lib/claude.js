@@ -1,29 +1,17 @@
-// src/lib/claude.js
-// Calls Anthropic API directly using VITE_ANTHROPIC_API_KEY.
-// Keep your GitHub repo private — the key is baked into the build.
-
-const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY
+// Routes all Claude calls through Supabase Edge Function
+// API key lives in Supabase secrets — never exposed in browser
+import { supabase } from './supabase'
 
 export async function callClaude(params) {
-  if (!API_KEY) throw new Error('VITE_ANTHROPIC_API_KEY not set. Add it to your .env and GitHub repo secrets.')
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': API_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'web-search-2025-03-05',
-    },
-    body: JSON.stringify({
+  const { data, error } = await supabase.functions.invoke('claude-proxy', {
+    body: {
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4000,
       ...params,
-    }),
+    },
   })
-
-  const data = await res.json()
-  if (!res.ok) throw new Error(data?.error?.message || `API error ${res.status}`)
+  if (error) throw new Error(error.message || 'Claude proxy call failed')
+  if (data?.error) throw new Error(data.error.message || 'Claude API error')
   return data
 }
 
