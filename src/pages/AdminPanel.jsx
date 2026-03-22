@@ -1024,24 +1024,21 @@ function PlayerBrowser() {
 // ─────────────────────────────────────────────────────────────
 // Admin Danger Zone — Delete team, Force-transfer player
 // ─────────────────────────────────────────────────────────────
-function AdminDangerZone({ teams, roomId, soldPlayers, onRefresh }) {
+function AdminDangerZone({ teams: fantasyTeams, roomId, soldPlayers: sold, onRefresh }) {
   const [open, setOpen] = useState(false)
-  const [tab, setTab] = useState('delete') // 'delete' | 'transfer'
-
-  // Delete team state
+  const [tab, setTab] = useState('delete')
   const [deleteTeamId, setDeleteTeamId] = useState('')
   const [confirmDelete, setConfirmDelete] = useState('')
   const [deleting, setDeleting] = useState(false)
-
-  // Transfer state
   const [transferPlayerId, setTransferPlayerId] = useState('')
   const [fromTeamId, setFromTeamId] = useState('')
   const [toTeamId, setToTeamId] = useState('')
   const [transferring, setTransferring] = useState(false)
 
-  const teamToDelete = (teams || []).find(t => t.id === deleteTeamId)
-  const playersOfFromTeam = (soldPlayers || []).filter(ap => ap.sold_to_team_id === fromTeamId)
-  const PLAYERS_DATA = soldPlayers
+  const safeTeams = fantasyTeams || []
+  const safeSold = sold || []
+  const teamToDelete = safeTeams.find(t => t.id === deleteTeamId)
+  const playersOfFromTeam = safeSold.filter(ap => ap.sold_to_team_id === fromTeamId)
 
   async function handleDeleteTeam() {
     if (!deleteTeamId) return toast.error('Select a team')
@@ -1075,7 +1072,7 @@ function AdminDangerZone({ teams, roomId, soldPlayers, onRefresh }) {
         p_room_id: roomId,
       })
       if (error) throw error
-      const player = soldPlayers.find(ap => ap.id === transferPlayerId)
+      const player = safeSold.find(ap => ap.id === transferPlayerId)
       toast.success(`Player transferred successfully`)
       setTransferPlayerId(''); setFromTeamId(''); setToTeamId('')
       onRefresh()
@@ -1118,7 +1115,7 @@ function AdminDangerZone({ teams, roomId, soldPlayers, onRefresh }) {
                 className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-danger/40 outline-none"
               >
                 <option value="">Select team to delete...</option>
-                {teams.map(t => (
+                {safeTeams.map(t => (
                   <option key={t.id} value={t.id}>{t.name} ({t.player_count} players)</option>
                 ))}
               </select>
@@ -1155,7 +1152,7 @@ function AdminDangerZone({ teams, roomId, soldPlayers, onRefresh }) {
                   className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-gold/40 outline-none"
                 >
                   <option value="">Select source team...</option>
-                  {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {safeTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
               {fromTeamId && (
@@ -1167,7 +1164,7 @@ function AdminDangerZone({ teams, roomId, soldPlayers, onRefresh }) {
                     className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-gold/40 outline-none"
                   >
                     <option value="">Select player...</option>
-                    {soldPlayers
+                    {safeSold
                       .filter(ap => ap.sold_to_team_id === fromTeamId)
                       .map(ap => {
                         const pData = ap.players || {}
@@ -1189,7 +1186,7 @@ function AdminDangerZone({ teams, roomId, soldPlayers, onRefresh }) {
                   className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-gold/40 outline-none"
                 >
                   <option value="">Select destination team...</option>
-                  {teams.filter(t => t.id !== fromTeamId).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {safeTeams.filter(t => t.id !== fromTeamId).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
               <button
