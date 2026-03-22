@@ -751,6 +751,14 @@ Start the JSON array now:`
         {/* Full Player Browser */}
         <PlayerBrowser />
 
+        {/* Admin Override — delete team, force transfer */}
+        <AdminDangerZone
+          teams={teams || []}
+          roomId={roomId}
+          soldPlayers={soldPlayers || []}
+          onRefresh={() => { loadRoom(roomId); refreshAllPlayers() }}
+        />
+
       </div>
     </div>
   )
@@ -1013,9 +1021,6 @@ function PlayerBrowser() {
           </div>
         </div>
       )}
-
-        {/* ── Danger Zone ── */}
-        <AdminDangerZone teams={teams || []} roomId={roomId} soldPlayers={soldPlayers || []} onRefresh={() => { loadRoom(roomId); refreshAllPlayers() }} />
 
     </div>
   )
