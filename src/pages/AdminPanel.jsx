@@ -1015,7 +1015,7 @@ function PlayerBrowser() {
       )}
 
         {/* ── Danger Zone ── */}
-        <AdminDangerZone teams={teams} roomId={roomId} soldPlayers={soldPlayers} onRefresh={() => { loadRoom(roomId); refreshAllPlayers() }} />
+        <AdminDangerZone teams={teams || []} roomId={roomId} soldPlayers={soldPlayers || []} onRefresh={() => { loadRoom(roomId); refreshAllPlayers() }} />
 
     </div>
   )
@@ -1039,8 +1039,8 @@ function AdminDangerZone({ teams, roomId, soldPlayers, onRefresh }) {
   const [toTeamId, setToTeamId] = useState('')
   const [transferring, setTransferring] = useState(false)
 
-  const teamToDelete = teams.find(t => t.id === deleteTeamId)
-  const playersOfFromTeam = soldPlayers.filter(ap => ap.sold_to_team_id === fromTeamId)
+  const teamToDelete = (teams || []).find(t => t.id === deleteTeamId)
+  const playersOfFromTeam = (soldPlayers || []).filter(ap => ap.sold_to_team_id === fromTeamId)
   const PLAYERS_DATA = soldPlayers
 
   async function handleDeleteTeam() {
