@@ -36,7 +36,7 @@ export default function PhysicalBidPanel({ currentPlayer }) {
 
   function teamStatus(team) {
     // no squad cap
-    if (isPlayerForeign && team.foreign_count >= 7) return { blocked: true, reason: 'Overseas limit (7/7)' }
+    // no overseas cap
     if (iplTeam && iplTeamCount(team.id) >= 4) return { blocked: true, reason: `${iplTeam} limit (4/4)` }
     return { blocked: false, reason: null }
   }

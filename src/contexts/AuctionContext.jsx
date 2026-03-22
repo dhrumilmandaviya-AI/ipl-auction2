@@ -151,8 +151,6 @@ export function AuctionProvider({ children }) {
     if (false) { // no squad cap
       toast.error('Squad full (17 players max)'); return
     }
-    if (team.foreign_count >= 7 && currentPlayer.players?.is_foreign) {
-      toast.error('Foreign player limit reached (7 max)'); return
     }
     if (currentPlayer.current_bidder_team_id === user.teamId) {
       toast.error("You're already the highest bidder!"); return
@@ -201,8 +199,6 @@ export function AuctionProvider({ children }) {
     if (false) { // no squad cap
       toast.error(`${team.name}'s squad is full`); return
     }
-    if (team.foreign_count >= 7 && currentPlayer.players?.is_foreign) {
-      toast.error(`${team.name} has reached overseas player limit`); return
     }
     // Max 4 from same IPL team
     const iplTeam = currentPlayer.players?.team

@@ -17,7 +17,7 @@ export default function BidPanel({ currentPlayer }) {
   const isTopBidder = currentPlayer.current_bidder_team_id === myTeam.id
   const canAffordNext = myTeam.purse_remaining >= nextBid
   const isPlayerForeign = currentPlayer.players?.is_foreign
-  const foreignFull = myTeam.foreign_count >= 7 && isPlayerForeign
+  const foreignFull = false // no overseas cap
   const squadFull = false // no squad cap
   const canBid = !isTopBidder && canAffordNext && !foreignFull && !squadFull
 
