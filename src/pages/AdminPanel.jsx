@@ -135,6 +135,14 @@ Start the JSON array now:`
         .select().single()
       if (mErr) throw mErr
 
+      // Prevent double processing
+      if (match.scores_processed) {
+        if (!window.confirm(`⚠️ Scores for "${matchInput.trim()}" have already been processed. Process again? This will overwrite existing scores.`)) {
+          setProcessingPoints(false)
+          return
+        }
+      }
+
       // Process each player's performance
       let processed = 0
       for (const perf of performances) {
@@ -172,6 +180,8 @@ Start the JSON array now:`
       }
 
       toast.success(`✅ Points processed for ${processed} players from ${matchInput.trim()}!`)
+      // Mark match as processed to prevent double-runs
+      await supabase.from('matches').update({ scores_processed: true, processed_at: new Date().toISOString() }).eq('id', match.id)
       setMatchInput('')
     } catch (err) {
       toast.error(err.message || 'Failed to fetch or process match')
@@ -471,10 +481,16 @@ Start the JSON array now:`
 
   /** Check if all teams meet minimum squad requirements */
   const squadWarnings = teams.filter(t => t.player_count < 14 && t.player_count > 0)
+  const [iplTeamFilter, setIplTeamFilter] = useState('All')
+
+  const IPL_TEAMS = ['All','CSK','DC','GT','KKR','LSG','MI','PBKS','RR','RCB','SRH']
 
   const filtered = pendingPlayers.filter(ap => {
     const p = PLAYERS.find(pl => pl.id === ap.player_id)
-    return !search || p?.name.toLowerCase().includes(search.toLowerCase())
+    if (!p) return false
+    if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false
+    if (iplTeamFilter !== 'All' && p.team !== iplTeamFilter) return false
+    return true
   })
 
   return (
@@ -576,14 +592,25 @@ Start the JSON array now:`
 
         {/* Pending players grid */}
         <div className="card p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold">Player Queue ({pendingPlayers.length})</h2>
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search..."
-              className="bg-bg-deep border border-bg-border rounded px-3 py-1.5 text-sm focus:border-gold/40 outline-none"
-            />
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h2 className="font-bold">Player Queue ({filtered.length}/{pendingPlayers.length})</h2>
+            <div className="flex gap-1 flex-wrap">
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search..."
+                className="bg-bg-deep border border-bg-border rounded px-3 py-1.5 text-sm focus:border-gold/40 outline-none"
+              />
+            </div>
+          </div>
+          {/* IPL team filter */}
+          <div className="flex gap-1 flex-wrap mb-3">
+            {IPL_TEAMS.map(t => (
+              <button key={t} onClick={() => setIplTeamFilter(t)}
+                className={`px-2 py-0.5 rounded text-xs font-bold transition-all ${iplTeamFilter === t ? 'bg-gold text-black' : 'border border-bg-border text-white/40 hover:text-white'}`}>
+                {t}
+              </button>
+            ))}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-64 overflow-y-auto">
             {filtered.map(ap => {
@@ -984,6 +1011,196 @@ function PlayerBrowser() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+        {/* ── Danger Zone ── */}
+        <AdminDangerZone teams={teams} roomId={roomId} soldPlayers={soldPlayers} onRefresh={() => { loadRoom(roomId); refreshAllPlayers() }} />
+
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Admin Danger Zone — Delete team, Force-transfer player
+// ─────────────────────────────────────────────────────────────
+function AdminDangerZone({ teams, roomId, soldPlayers, onRefresh }) {
+  const [open, setOpen] = useState(false)
+  const [tab, setTab] = useState('delete') // 'delete' | 'transfer'
+
+  // Delete team state
+  const [deleteTeamId, setDeleteTeamId] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState('')
+  const [deleting, setDeleting] = useState(false)
+
+  // Transfer state
+  const [transferPlayerId, setTransferPlayerId] = useState('')
+  const [fromTeamId, setFromTeamId] = useState('')
+  const [toTeamId, setToTeamId] = useState('')
+  const [transferring, setTransferring] = useState(false)
+
+  const teamToDelete = teams.find(t => t.id === deleteTeamId)
+  const playersOfFromTeam = soldPlayers.filter(ap => ap.sold_to_team_id === fromTeamId)
+  const PLAYERS_DATA = soldPlayers
+
+  async function handleDeleteTeam() {
+    if (!deleteTeamId) return toast.error('Select a team')
+    if (confirmDelete !== teamToDelete?.name) return toast.error('Team name does not match')
+    setDeleting(true)
+    try {
+      const { error } = await supabase.rpc('admin_delete_team', {
+        p_team_id: deleteTeamId,
+        p_room_id: roomId,
+      })
+      if (error) throw error
+      toast.success(`${teamToDelete?.name} deleted — players returned to unsold`)
+      setDeleteTeamId(''); setConfirmDelete('')
+      onRefresh()
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  async function handleTransfer() {
+    if (!transferPlayerId || !fromTeamId || !toTeamId) return toast.error('Fill all fields')
+    if (fromTeamId === toTeamId) return toast.error('From and To teams must be different')
+    setTransferring(true)
+    try {
+      const { error } = await supabase.rpc('admin_transfer_player', {
+        p_auction_player_id: transferPlayerId,
+        p_from_team_id: fromTeamId,
+        p_to_team_id: toTeamId,
+        p_room_id: roomId,
+      })
+      if (error) throw error
+      const player = soldPlayers.find(ap => ap.id === transferPlayerId)
+      toast.success(`Player transferred successfully`)
+      setTransferPlayerId(''); setFromTeamId(''); setToTeamId('')
+      onRefresh()
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setTransferring(false)
+    }
+  }
+
+  return (
+    <div className="card overflow-hidden border-danger/20">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between p-4 hover:bg-danger/5 transition-colors"
+      >
+        <h2 className="font-bold text-danger">⚠️ Admin Override</h2>
+        <span className="text-white/40 font-mono text-sm">{open ? '▲ Hide' : '▼ Show'}</span>
+      </button>
+
+      {open && (
+        <div className="border-t border-danger/20 p-4 space-y-4">
+          {/* Tabs */}
+          <div className="flex gap-2">
+            {[['delete','🗑 Delete Team'],['transfer','🔄 Force Transfer']].map(([id, label]) => (
+              <button key={id} onClick={() => setTab(id)}
+                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${tab === id ? 'bg-danger text-white' : 'border border-bg-border text-white/40 hover:text-white'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Delete team */}
+          {tab === 'delete' && (
+            <div className="space-y-3">
+              <p className="text-xs text-danger/70 font-mono">Deletes the team permanently. All their players return to unsold and can be re-auctioned.</p>
+              <select
+                value={deleteTeamId}
+                onChange={e => { setDeleteTeamId(e.target.value); setConfirmDelete('') }}
+                className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-danger/40 outline-none"
+              >
+                <option value="">Select team to delete...</option>
+                {teams.map(t => (
+                  <option key={t.id} value={t.id}>{t.name} ({t.player_count} players)</option>
+                ))}
+              </select>
+              {deleteTeamId && (
+                <div className="space-y-2">
+                  <p className="text-xs text-white/40 font-mono">Type <span className="text-danger font-bold">"{teamToDelete?.name}"</span> to confirm:</p>
+                  <input
+                    value={confirmDelete}
+                    onChange={e => setConfirmDelete(e.target.value)}
+                    placeholder="Type team name to confirm..."
+                    className="w-full bg-bg-deep border border-danger/30 rounded-lg px-3 py-2 text-white text-sm focus:border-danger outline-none"
+                  />
+                  <button
+                    onClick={handleDeleteTeam}
+                    disabled={deleting || confirmDelete !== teamToDelete?.name}
+                    className="w-full py-2 bg-danger text-white rounded-lg font-bold text-sm disabled:opacity-40 hover:bg-danger/80 transition-all"
+                  >
+                    {deleting ? 'Deleting...' : `🗑 Delete ${teamToDelete?.name}`}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Force transfer */}
+          {tab === 'transfer' && (
+            <div className="space-y-3">
+              <p className="text-xs text-yellow-400/70 font-mono">Move a player from one team to another. Purse adjusts automatically.</p>
+              <div>
+                <label className="text-xs text-white/40 font-mono block mb-1">From Team</label>
+                <select
+                  value={fromTeamId}
+                  onChange={e => { setFromTeamId(e.target.value); setTransferPlayerId('') }}
+                  className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-gold/40 outline-none"
+                >
+                  <option value="">Select source team...</option>
+                  {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+              {fromTeamId && (
+                <div>
+                  <label className="text-xs text-white/40 font-mono block mb-1">Player to Transfer</label>
+                  <select
+                    value={transferPlayerId}
+                    onChange={e => setTransferPlayerId(e.target.value)}
+                    className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-gold/40 outline-none"
+                  >
+                    <option value="">Select player...</option>
+                    {soldPlayers
+                      .filter(ap => ap.sold_to_team_id === fromTeamId)
+                      .map(ap => {
+                        const pData = ap.players || {}
+                        return (
+                          <option key={ap.id} value={ap.id}>
+                            {pData.name || ap.player_id}
+                          </option>
+                        )
+                      })
+                    }
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="text-xs text-white/40 font-mono block mb-1">To Team</label>
+                <select
+                  value={toTeamId}
+                  onChange={e => setToTeamId(e.target.value)}
+                  className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-gold/40 outline-none"
+                >
+                  <option value="">Select destination team...</option>
+                  {teams.filter(t => t.id !== fromTeamId).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+              <button
+                onClick={handleTransfer}
+                disabled={transferring || !transferPlayerId || !fromTeamId || !toTeamId}
+                className="w-full py-2 bg-yellow-500 text-black rounded-lg font-bold text-sm disabled:opacity-40 hover:bg-yellow-400 transition-all"
+              >
+                {transferring ? 'Transferring...' : '🔄 Force Transfer Player'}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

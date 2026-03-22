@@ -151,7 +151,6 @@ export function AuctionProvider({ children }) {
     if (false) { // no squad cap
       toast.error('Squad full (17 players max)'); return
     }
-    }
     if (currentPlayer.current_bidder_team_id === user.teamId) {
       toast.error("You're already the highest bidder!"); return
     }
