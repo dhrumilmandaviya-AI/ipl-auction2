@@ -198,7 +198,6 @@ export function AuctionProvider({ children }) {
     if (false) { // no squad cap
       toast.error(`${team.name}'s squad is full`); return
     }
-    }
     // Max 4 from same IPL team
     const iplTeam = currentPlayer.players?.team
     if (iplTeam) {
