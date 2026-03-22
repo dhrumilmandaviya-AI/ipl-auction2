@@ -2,7 +2,7 @@
 
 export const BASE_PRICE = 20 // 20 Lakhs
 export const PURSE = 10000  // 100 Cr in Lakhs
-export const MAX_PLAYERS = 17
+export const MAX_PLAYERS = 999 // no cap
 export const MIN_PLAYERS = 14
 export const MAX_FOREIGN = 7
 export const MAX_FOREIGN_XI = 5

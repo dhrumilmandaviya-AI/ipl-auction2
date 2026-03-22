@@ -262,7 +262,7 @@ function TransferRules() {
         <Rule>Both teams must remain within the <strong className="text-gold">7 overseas player limit</strong> after the trade</Rule>
         <Rule>Both teams must have enough <strong className="text-gold">purse</strong> to cover any cash component</Rule>
         <Rule><strong className="text-gold">Historical fantasy points follow the player</strong> — if you trade Bumrah away, his past points go with him</Rule>
-        <Rule>Squad limits (min 14, max 17) are not enforced on trades — but keep them in mind</Rule>
+        <Rule>Historical points follow the player after trades</Rule>
         <Rule>Admin can close the transfer window at any time</Rule>
       </Section>
 

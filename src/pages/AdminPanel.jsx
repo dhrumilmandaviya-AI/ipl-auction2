@@ -308,19 +308,17 @@ Start the JSON array now:`
     try {
       const data = await callClaudeWithSearch([{
         role: 'user',
-        content: `Go to cricbuzz.com or iplt20.com and find the full IPL 2026 match schedule.
+        content: `Search for IPL 2026 schedule on cricbuzz.com and iplt20.com.
 
-Your response must be ONLY a JSON array. No introduction, no explanation, no markdown fences.
-Start your response with [ and end with ]. Nothing before or after.
+Return ALL confirmed matches you find even if the full schedule is not released yet.
 
-Each match must follow this exact structure:
-[
-{"match_number":1,"team1":"CSK","team2":"MI","match_date":"2026-03-22"},
-{"match_number":2,"team1":"GT","team2":"RR","match_date":"2026-03-23"}
-]
+CRITICAL: Your entire response must be only a JSON array. Start immediately with [ — no text before it.
 
-Only use these team codes: MI CSK RCB KKR DC SRH RR PBKS LSG GT
-Include every match you can find. Start the JSON array now:`
+[{"match_number":1,"team1":"CSK","team2":"MI","match_date":"2026-03-22"},{"match_number":2,"team1":"GT","team2":"RR","match_date":"2026-03-23"}]
+
+Team codes: MI CSK RCB KKR DC SRH RR PBKS LSG GT
+Use null for unknown dates.
+[`
       }], 3000)
 
       setSyncStatus('📥 Saving schedule...')
@@ -500,16 +498,24 @@ Start the JSON array now:`
             {room?.status === 'active' && (
               <button onClick={closeAuction} className="btn-danger">Close Auction</button>
             )}
-            {room?.status === 'closed' && (
+            {/* Re-auction toggle — available anytime after auction starts */}
+            {['active', 'closed', 'reauction'].includes(room?.status) && (
               <button
                 onClick={async () => {
-                  await supabase.rpc('open_reauction', { p_room_id: roomId })
-                  toast.success('Re-auction opened — unsold players at ₹10L base')
-                  loadRoom(roomId)
+                  if (room?.status === 'reauction') {
+                    // Close re-auction back to closed
+                    await supabase.from('auction_rooms').update({ status: 'closed' }).eq('id', roomId)
+                    toast.success('Re-auction closed')
+                    loadRoom(roomId)
+                  } else {
+                    await supabase.rpc('open_reauction', { p_room_id: roomId })
+                    toast.success('Re-auction opened — unsold players at ₹10L base')
+                    loadRoom(roomId)
+                  }
                 }}
-                className="btn-ghost"
+                className={room?.status === 'reauction' ? 'btn-danger' : 'btn-ghost'}
               >
-                🔄 Open Re-auction (Unsold Players)
+                {room?.status === 'reauction' ? '⏹ Close Re-auction' : '🔄 Open Re-auction (Unsold)'}
               </button>
             )}
             {/* Switch auction mode mid-auction */}
@@ -818,7 +824,7 @@ function PointsRules() {
             <div className="space-y-1.5 text-xs text-white/50 font-mono">
               {[
                 '₹100Cr purse per team',
-                'Max 17 players, min 14',
+                
                 'Max 7 overseas players',
                 'Top 11 count for points',
                 'Max 5 overseas in XI',
@@ -859,9 +865,9 @@ function PlayerBrowser() {
   const [selected, setSelected] = useState(null)
   const [dbPlayers, setDbPlayers] = useState([])
 
-  // Load players from DB (includes batting_stats / bowling_stats)
+  // Load players from DB (includes batting_stats / bowling_stats) — reload every open
   useEffect(() => {
-    if (!open || dbPlayers.length > 0) return
+    if (!open) return
     supabase.from('players').select('*').order('name').then(({ data }) => {
       if (data) setDbPlayers(data)
     })

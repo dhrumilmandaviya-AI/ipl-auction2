@@ -60,15 +60,21 @@ export default function Squads() {
     WK:  { class: 'role-badge-wk'  },
   }
 
-  const squad = (squadData[selectedTeam] || []).sort((a, b) =>
-    (ROLE_ORDER[a.playerData?.role] ?? 4) - (ROLE_ORDER[b.playerData?.role] ?? 4)
-  )
+  const squad = (squadData[selectedTeam] || []).sort((a, b) => {
+    const teamA = a.playerData?.team || 'ZZZ'
+    const teamB = b.playerData?.team || 'ZZZ'
+    if (teamA !== teamB) return teamA.localeCompare(teamB)
+    // Within same IPL team sort by role then name
+    const roleOrder = { WK: 0, BAT: 1, AR: 2, BWL: 3 }
+    return (roleOrder[a.playerData?.role] ?? 4) - (roleOrder[b.playerData?.role] ?? 4)
+  })
 
-  const byRole = {}
+  // Group by IPL team instead of role
+  const byIPLTeam = {}
   for (const ap of squad) {
-    const r = ap.playerData?.role || 'BAT'
-    if (!byRole[r]) byRole[r] = []
-    byRole[r].push(ap)
+    const t = ap.playerData?.team || 'Unknown'
+    if (!byIPLTeam[t]) byIPLTeam[t] = []
+    byIPLTeam[t].push(ap)
   }
 
   const team = teams.find(t => t.id === selectedTeam)
@@ -125,12 +131,13 @@ export default function Squads() {
               )}
             </div>
 
-            {/* Squad list */}
+            {/* Squad list grouped by IPL team */}
             <div className="space-y-4">
-              {Object.entries(byRole).sort(([a], [b]) => (ROLE_ORDER[a] ?? 4) - (ROLE_ORDER[b] ?? 4)).map(([role, players]) => (
-                <div key={role} className="card overflow-hidden">
-                  <div className="px-4 py-2 bg-bg-elevated border-b border-bg-border text-xs font-mono font-bold text-white/50 uppercase tracking-wider">
-                    {ROLE_LABELS[role] || role} <span className="text-white/20">({players.length})</span>
+              {Object.entries(byIPLTeam).sort(([a], [b]) => a.localeCompare(b)).map(([iplTeam, players]) => (
+                <div key={iplTeam} className="card overflow-hidden">
+                  <div className="px-4 py-2 bg-bg-elevated border-b border-bg-border flex items-center gap-2">
+                    <span className="text-xs font-mono font-bold text-gold uppercase tracking-wider">{iplTeam}</span>
+                    <span className="text-xs text-white/20 font-mono">({players.length} player{players.length !== 1 ? 's' : ''})</span>
                   </div>
                   {players.map(ap => {
                     const p = ap.playerData
@@ -144,8 +151,6 @@ export default function Squads() {
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className={`${rc.class} text-xs`}>{p?.role}</span>
-                            <span className="text-xs text-white/30 font-mono">{p?.team}</span>
-                            {p?.batting && <span className="text-xs text-white/20 font-mono hidden md:block">{p.batting}</span>}
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0">

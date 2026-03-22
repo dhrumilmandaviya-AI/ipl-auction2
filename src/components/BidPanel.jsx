@@ -67,7 +67,7 @@ export default function BidPanel({ currentPlayer }) {
         </div>
         <div className="flex justify-between text-xs mt-1">
           <span className="font-display text-xl text-white">{formatPrice(myTeam.purse_remaining)}</span>
-          <span className="text-white/30 font-mono">{myTeam.player_count}/17 players</span>
+          <span className="text-white/30 font-mono">{myTeam.player_count} players</span>
         </div>
       </div>
 
@@ -79,7 +79,7 @@ export default function BidPanel({ currentPlayer }) {
       )}
       {squadFull && (
         <div className="bg-danger/10 border border-danger/30 rounded-lg p-3 text-center text-danger text-sm">
-          Squad full (17/17)
+          
         </div>
       )}
       {foreignFull && (
