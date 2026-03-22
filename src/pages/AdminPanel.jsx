@@ -111,7 +111,7 @@ Your response must be ONLY a JSON array. No intro, no markdown, no explanation.
 Start with [ and end with ]. Nothing else.
 
 Format:
-[{"player_name":"Virat Kohli","did_not_play":false,"batting":{"runs":45,"balls":32,"fours":4,"sixes":2,"dismissed":true},"bowling":null,"fielding":{"catches":1,"runouts":0,"stumpings":0}}]
+[{"player_name":"Virat Kohli","did_not_play":false,"batting":{"runs":45,"balls":32,"fours":4,"sixes":2,"dismissed":true},"bowling":null,"in_lineup":true,"is_substitute":false,"fielding":{"catches":0,"stumpings":0,"run_out_direct":0,"run_out_indirect":0}}]
 
 Rules:
 - did_not_play: true if player not in scorecard
@@ -165,6 +165,8 @@ Start the JSON array now:`
           bowling: perf.bowling || null,
           fielding: perf.fielding || null,
           did_not_play: perf.did_not_play || false,
+          in_lineup: perf.in_lineup || false,
+          is_substitute: perf.is_substitute || false,
           total_points: totalPts,
         })
         processed++
@@ -395,7 +397,7 @@ Your response must be ONLY a JSON array. No intro, no markdown, no explanation.
 Start with [ and end with ]. Nothing else.
 
 Format:
-[{"match_name":"MI vs CSK","performances":[{"player_name":"Virat Kohli","did_not_play":false,"batting":{"runs":45,"balls":32,"fours":4,"sixes":2,"dismissed":true},"bowling":null,"fielding":{"catches":1,"runouts":0,"stumpings":0}}]}]
+[{"match_name":"MI vs CSK","performances":[{"player_name":"Virat Kohli","did_not_play":false,"batting":{"runs":45,"balls":32,"fours":4,"sixes":2,"dismissed":true},"bowling":null,"in_lineup":true,"is_substitute":false,"fielding":{"catches":0,"stumpings":0,"run_out_direct":0,"run_out_indirect":0}}]}]
 
 If a player did not play set did_not_play to true and omit batting/bowling/fielding.
 If a player did not bat set batting to null. If did not bowl set bowling to null.
@@ -446,6 +448,8 @@ Start the JSON array now:`
             bowling: perf.bowling || null,
             fielding: perf.fielding || null,
             did_not_play: perf.did_not_play || false,
+          in_lineup: perf.in_lineup || false,
+          is_substitute: perf.is_substitute || false,
             total_points: calculateTotalPoints(perf),
           })
 
@@ -751,14 +755,6 @@ Start the JSON array now:`
         {/* Full Player Browser */}
         <PlayerBrowser />
 
-        {/* Admin Override — delete team, force transfer */}
-        <AdminDangerZone
-          teams={teams || []}
-          roomId={roomId}
-          soldPlayers={soldPlayers || []}
-          onRefresh={() => { loadRoom(roomId); refreshAllPlayers() }}
-        />
-
       </div>
     </div>
   )
@@ -900,6 +896,8 @@ function PlayerBrowser() {
   const [selected, setSelected] = useState(null)
   const [dbPlayers, setDbPlayers] = useState([])
 
+  const ROLE_CLASS = { BAT: 'role-badge-bat', BWL: 'role-badge-bwl', AR: 'role-badge-ar', WK: 'role-badge-wk' }
+
   // Load players from DB (includes batting_stats / bowling_stats) — reload every open
   useEffect(() => {
     if (!open) return
@@ -1026,185 +1024,3 @@ function PlayerBrowser() {
   )
 }
 
-// ─────────────────────────────────────────────────────────────
-// Admin Danger Zone — Delete team, Force-transfer player
-// ─────────────────────────────────────────────────────────────
-function AdminDangerZone({ teams: fantasyTeams, roomId, soldPlayers: sold, onRefresh }) {
-  const [open, setOpen] = useState(false)
-  const [tab, setTab] = useState('delete')
-  const [deleteTeamId, setDeleteTeamId] = useState('')
-  const [confirmDelete, setConfirmDelete] = useState('')
-  const [deleting, setDeleting] = useState(false)
-  const [transferPlayerId, setTransferPlayerId] = useState('')
-  const [fromTeamId, setFromTeamId] = useState('')
-  const [toTeamId, setToTeamId] = useState('')
-  const [transferring, setTransferring] = useState(false)
-
-  const safeTeams = fantasyTeams || []
-  const safeSold = sold || []
-  const teamToDelete = safeTeams.find(t => t.id === deleteTeamId)
-  const playersOfFromTeam = safeSold.filter(ap => ap.sold_to_team_id === fromTeamId)
-
-  async function handleDeleteTeam() {
-    if (!deleteTeamId) return toast.error('Select a team')
-    if (confirmDelete !== teamToDelete?.name) return toast.error('Team name does not match')
-    setDeleting(true)
-    try {
-      const { error } = await supabase.rpc('admin_delete_team', {
-        p_team_id: deleteTeamId,
-        p_room_id: roomId,
-      })
-      if (error) throw error
-      toast.success(`${teamToDelete?.name} deleted — players returned to unsold`)
-      setDeleteTeamId(''); setConfirmDelete('')
-      onRefresh()
-    } catch (err) {
-      toast.error(err.message)
-    } finally {
-      setDeleting(false)
-    }
-  }
-
-  async function handleTransfer() {
-    if (!transferPlayerId || !fromTeamId || !toTeamId) return toast.error('Fill all fields')
-    if (fromTeamId === toTeamId) return toast.error('From and To teams must be different')
-    setTransferring(true)
-    try {
-      const { error } = await supabase.rpc('admin_transfer_player', {
-        p_auction_player_id: transferPlayerId,
-        p_from_team_id: fromTeamId,
-        p_to_team_id: toTeamId,
-        p_room_id: roomId,
-      })
-      if (error) throw error
-      const player = safeSold.find(ap => ap.id === transferPlayerId)
-      toast.success(`Player transferred successfully`)
-      setTransferPlayerId(''); setFromTeamId(''); setToTeamId('')
-      onRefresh()
-    } catch (err) {
-      toast.error(err.message)
-    } finally {
-      setTransferring(false)
-    }
-  }
-
-  return (
-    <div className="card overflow-hidden border-danger/20">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between p-4 hover:bg-danger/5 transition-colors"
-      >
-        <h2 className="font-bold text-danger">⚠️ Admin Override</h2>
-        <span className="text-white/40 font-mono text-sm">{open ? '▲ Hide' : '▼ Show'}</span>
-      </button>
-
-      {open && (
-        <div className="border-t border-danger/20 p-4 space-y-4">
-          {/* Tabs */}
-          <div className="flex gap-2">
-            {[['delete','🗑 Delete Team'],['transfer','🔄 Force Transfer']].map(([id, label]) => (
-              <button key={id} onClick={() => setTab(id)}
-                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${tab === id ? 'bg-danger text-white' : 'border border-bg-border text-white/40 hover:text-white'}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* Delete team */}
-          {tab === 'delete' && (
-            <div className="space-y-3">
-              <p className="text-xs text-danger/70 font-mono">Deletes the team permanently. All their players return to unsold and can be re-auctioned.</p>
-              <select
-                value={deleteTeamId}
-                onChange={e => { setDeleteTeamId(e.target.value); setConfirmDelete('') }}
-                className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-danger/40 outline-none"
-              >
-                <option value="">Select team to delete...</option>
-                {safeTeams.map(t => (
-                  <option key={t.id} value={t.id}>{t.name} ({t.player_count} players)</option>
-                ))}
-              </select>
-              {deleteTeamId && (
-                <div className="space-y-2">
-                  <p className="text-xs text-white/40 font-mono">Type <span className="text-danger font-bold">"{teamToDelete?.name}"</span> to confirm:</p>
-                  <input
-                    value={confirmDelete}
-                    onChange={e => setConfirmDelete(e.target.value)}
-                    placeholder="Type team name to confirm..."
-                    className="w-full bg-bg-deep border border-danger/30 rounded-lg px-3 py-2 text-white text-sm focus:border-danger outline-none"
-                  />
-                  <button
-                    onClick={handleDeleteTeam}
-                    disabled={deleting || confirmDelete !== teamToDelete?.name}
-                    className="w-full py-2 bg-danger text-white rounded-lg font-bold text-sm disabled:opacity-40 hover:bg-danger/80 transition-all"
-                  >
-                    {deleting ? 'Deleting...' : `🗑 Delete ${teamToDelete?.name}`}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Force transfer */}
-          {tab === 'transfer' && (
-            <div className="space-y-3">
-              <p className="text-xs text-yellow-400/70 font-mono">Move a player from one team to another. Purse adjusts automatically.</p>
-              <div>
-                <label className="text-xs text-white/40 font-mono block mb-1">From Team</label>
-                <select
-                  value={fromTeamId}
-                  onChange={e => { setFromTeamId(e.target.value); setTransferPlayerId('') }}
-                  className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-gold/40 outline-none"
-                >
-                  <option value="">Select source team...</option>
-                  {safeTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              </div>
-              {fromTeamId && (
-                <div>
-                  <label className="text-xs text-white/40 font-mono block mb-1">Player to Transfer</label>
-                  <select
-                    value={transferPlayerId}
-                    onChange={e => setTransferPlayerId(e.target.value)}
-                    className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-gold/40 outline-none"
-                  >
-                    <option value="">Select player...</option>
-                    {safeSold
-                      .filter(ap => ap.sold_to_team_id === fromTeamId)
-                      .map(ap => {
-                        const pData = ap.players || {}
-                        return (
-                          <option key={ap.id} value={ap.id}>
-                            {pData.name || ap.player_id}
-                          </option>
-                        )
-                      })
-                    }
-                  </select>
-                </div>
-              )}
-              <div>
-                <label className="text-xs text-white/40 font-mono block mb-1">To Team</label>
-                <select
-                  value={toTeamId}
-                  onChange={e => setToTeamId(e.target.value)}
-                  className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-gold/40 outline-none"
-                >
-                  <option value="">Select destination team...</option>
-                  {safeTeams.filter(t => t.id !== fromTeamId).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              </div>
-              <button
-                onClick={handleTransfer}
-                disabled={transferring || !transferPlayerId || !fromTeamId || !toTeamId}
-                className="w-full py-2 bg-yellow-500 text-black rounded-lg font-bold text-sm disabled:opacity-40 hover:bg-yellow-400 transition-all"
-              >
-                {transferring ? 'Transferring...' : '🔄 Force Transfer Player'}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
