@@ -28,12 +28,23 @@ export default function Landing() {
   const [tab, setTab] = useState('join')
   const [loading, setLoading] = useState(false)
   const [sessions, setSessions] = useState(getSessions)
-  const [roomDetails, setRoomDetails] = useState({}) // roomId → room name/status
+  const [roomDetails, setRoomDetails] = useState({})
+  const [existingTeams, setExistingTeams] = useState([])
 
   // Join form
   const [roomCode, setRoomCode] = useState('')
   const [teamName, setTeamName] = useState('')
   const [adminCode, setAdminCode] = useState('')
+
+  async function loadRoomTeams(code) {
+    if (code.length < 6) { setExistingTeams([]); return }
+    const { data: room } = await supabase
+      .from('auction_rooms').select('id').eq('code', code.toUpperCase()).single()
+    if (!room) { setExistingTeams([]); return }
+    const { data: teams } = await supabase
+      .from('teams').select('id, name').eq('auction_room_id', room.id).order('name')
+    setExistingTeams(teams || [])
+  }
 
   // Create form
   const [auctionName, setAuctionName] = useState('')
@@ -79,12 +90,24 @@ export default function Landing() {
         .single()
       if (rErr || !room) throw new Error('Room not found. Check the code.')
 
-      const { data: existing } = await supabase
+      // Try exact match first, then partial
+      let { data: existing } = await supabase
         .from('teams')
         .select('id, name')
         .eq('auction_room_id', room.id)
         .ilike('name', teamName.trim())
         .single()
+
+      // If not found by name, check if admin code matches any team
+      if (!existing && adminCode.trim() === `ADMIN_${room.code.slice(-4)}`) {
+        // Admin rejoining — find by admin_team_id
+        const { data: adminTeam } = await supabase
+          .from('teams')
+          .select('id, name')
+          .eq('id', room.admin_team_id)
+          .single()
+        if (adminTeam) existing = adminTeam
+      }
 
       let teamId
       let isAdmin = false
@@ -305,20 +328,45 @@ export default function Landing() {
               <label className="text-xs text-white/50 font-mono uppercase tracking-wider block mb-1">Room Code</label>
               <input
                 value={roomCode}
-                onChange={e => setRoomCode(e.target.value.toUpperCase())}
+                onChange={e => { setRoomCode(e.target.value.toUpperCase()); loadRoomTeams(e.target.value) }}
                 placeholder="e.g. K9BX2M"
                 maxLength={8}
                 className="w-full bg-bg-deep border border-bg-border rounded-lg px-4 py-3 text-white font-mono text-lg tracking-widest focus:border-gold/50 outline-none"
               />
             </div>
             <div>
-              <label className="text-xs text-white/50 font-mono uppercase tracking-wider block mb-1">Your Team Name</label>
-              <input
-                value={teamName}
-                onChange={e => setTeamName(e.target.value)}
-                placeholder="e.g. Batman's Batsmen"
-                className="w-full bg-bg-deep border border-bg-border rounded-lg px-4 py-3 text-white focus:border-gold/50 outline-none"
-              />
+              <label className="text-xs text-white/50 font-mono uppercase tracking-wider block mb-1">
+                Your Team {existingTeams.length > 0 ? '— pick from list or type new' : ''}
+              </label>
+              {existingTeams.length > 0 ? (
+                <select
+                  value={teamName}
+                  onChange={e => setTeamName(e.target.value)}
+                  className="w-full bg-bg-deep border border-bg-border rounded-lg px-4 py-3 text-white focus:border-gold/50 outline-none"
+                >
+                  <option value="">Select your team...</option>
+                  {existingTeams.map(t => (
+                    <option key={t.id} value={t.name}>{t.name}</option>
+                  ))}
+                  <option value="__new__">+ Join as new team</option>
+                </select>
+              ) : (
+                <input
+                  value={teamName}
+                  onChange={e => setTeamName(e.target.value)}
+                  placeholder="e.g. Batman's Batsmen"
+                  className="w-full bg-bg-deep border border-bg-border rounded-lg px-4 py-3 text-white focus:border-gold/50 outline-none"
+                />
+              )}
+              {teamName === '__new__' && (
+                <input
+                  value=""
+                  onChange={e => setTeamName(e.target.value)}
+                  placeholder="Enter new team name..."
+                  autoFocus
+                  className="w-full bg-bg-deep border border-gold/30 rounded-lg px-4 py-3 text-white focus:border-gold/50 outline-none mt-2"
+                />
+              )}
             </div>
             <div>
               <label className="text-xs text-white/50 font-mono uppercase tracking-wider block mb-1">

@@ -755,6 +755,9 @@ Start the JSON array now:`
         {/* Full Player Browser */}
         <PlayerBrowser />
 
+        {/* Admin Override */}
+        <AdminOverride teams={teams} soldPlayers={soldPlayers} roomId={roomId} onRefresh={() => { loadRoom(roomId); refreshAllPlayers() }} />
+
       </div>
     </div>
   )
@@ -1024,3 +1027,122 @@ function PlayerBrowser() {
   )
 }
 
+
+function AdminOverride({ teams, soldPlayers, roomId, onRefresh }) {
+  const [open, setOpen] = useState(false)
+  const [tab, setTab] = useState('delete')
+  const [deleteTeamId, setDeleteTeamId] = useState('')
+  const [confirmName, setConfirmName] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [fromTeamId, setFromTeamId] = useState('')
+  const [toTeamId, setToTeamId] = useState('')
+  const [playerAp, setPlayerAp] = useState('')
+  const [transferring, setTransferring] = useState(false)
+
+  const t = (teams || [])
+  const sp = (soldPlayers || [])
+  const targetTeam = t.find(x => x.id === deleteTeamId)
+
+  async function doDelete() {
+    if (!deleteTeamId || confirmName !== targetTeam?.name) return toast.error('Name does not match')
+    setDeleting(true)
+    try {
+      const { error } = await supabase.rpc('admin_delete_team', { p_team_id: deleteTeamId, p_room_id: roomId })
+      if (error) throw error
+      toast.success('Team deleted')
+      setDeleteTeamId(''); setConfirmName('')
+      onRefresh()
+    } catch(e) { toast.error(e.message) }
+    finally { setDeleting(false) }
+  }
+
+  async function doTransfer() {
+    if (!fromTeamId || !toTeamId || !playerAp) return toast.error('Fill all fields')
+    if (fromTeamId === toTeamId) return toast.error('Same team selected')
+    setTransferring(true)
+    try {
+      const { error } = await supabase.rpc('admin_transfer_player', {
+        p_auction_player_id: playerAp,
+        p_from_team_id: fromTeamId,
+        p_to_team_id: toTeamId,
+        p_room_id: roomId,
+      })
+      if (error) throw error
+      toast.success('Player transferred')
+      setPlayerAp(''); setFromTeamId(''); setToTeamId('')
+      onRefresh()
+    } catch(e) { toast.error(e.message) }
+    finally { setTransferring(false) }
+  }
+
+  return (
+    <div className="card overflow-hidden border-danger/20">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between p-4 hover:bg-danger/5 transition-colors">
+        <h2 className="font-bold text-danger">⚠️ Admin Override</h2>
+        <span className="text-white/40 font-mono text-sm">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="border-t border-danger/20 p-4 space-y-4">
+          <div className="flex gap-2">
+            {[['delete','🗑 Delete Team'],['transfer','🔄 Force Transfer']].map(([id,label]) => (
+              <button key={id} onClick={() => setTab(id)}
+                className={`px-4 py-2 rounded-lg text-sm font-bold ${tab===id ? 'bg-danger text-white' : 'border border-bg-border text-white/40 hover:text-white'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'delete' && (
+            <div className="space-y-3">
+              <p className="text-xs text-danger/70 font-mono">Deletes team — all their players return to unsold.</p>
+              <select value={deleteTeamId} onChange={e => { setDeleteTeamId(e.target.value); setConfirmName('') }}
+                className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm outline-none">
+                <option value="">Select team...</option>
+                {t.map(x => <option key={x.id} value={x.id}>{x.name} ({x.player_count}p)</option>)}
+              </select>
+              {deleteTeamId && <>
+                <p className="text-xs text-white/40 font-mono">Type <b className="text-danger">"{targetTeam?.name}"</b> to confirm:</p>
+                <input value={confirmName} onChange={e => setConfirmName(e.target.value)}
+                  placeholder="Type team name..."
+                  className="w-full bg-bg-deep border border-danger/30 rounded-lg px-3 py-2 text-white text-sm outline-none" />
+                <button onClick={doDelete} disabled={deleting || confirmName !== targetTeam?.name}
+                  className="w-full py-2 bg-danger text-white rounded-lg font-bold text-sm disabled:opacity-40">
+                  {deleting ? 'Deleting...' : `Delete ${targetTeam?.name}`}
+                </button>
+              </>}
+            </div>
+          )}
+
+          {tab === 'transfer' && (
+            <div className="space-y-3">
+              <p className="text-xs text-yellow-400/70 font-mono">Move a player between teams. Purse adjusts automatically.</p>
+              <select value={fromTeamId} onChange={e => { setFromTeamId(e.target.value); setPlayerAp('') }}
+                className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm outline-none">
+                <option value="">From team...</option>
+                {t.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+              </select>
+              {fromTeamId && (
+                <select value={playerAp} onChange={e => setPlayerAp(e.target.value)}
+                  className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm outline-none">
+                  <option value="">Select player...</option>
+                  {sp.filter(ap => ap.sold_to_team_id === fromTeamId).map(ap => (
+                    <option key={ap.id} value={ap.id}>{ap.players?.name || ap.player_id}</option>
+                  ))}
+                </select>
+              )}
+              <select value={toTeamId} onChange={e => setToTeamId(e.target.value)}
+                className="w-full bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm outline-none">
+                <option value="">To team...</option>
+                {t.filter(x => x.id !== fromTeamId).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+              </select>
+              <button onClick={doTransfer} disabled={transferring || !playerAp || !fromTeamId || !toTeamId}
+                className="w-full py-2 bg-yellow-500 text-black rounded-lg font-bold text-sm disabled:opacity-40">
+                {transferring ? 'Transferring...' : '🔄 Force Transfer'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
