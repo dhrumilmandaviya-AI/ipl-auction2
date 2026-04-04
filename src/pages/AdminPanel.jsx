@@ -564,30 +564,6 @@ Start the JSON array now:`
             >
               {room?.transfer_window_open ? '🔒 Close Transfers' : '🔄 Open Transfer Window'}
             </button>
-            {/* Lock / Unlock squad selections */}
-            <button
-              onClick={async () => {
-                const { data: existing } = await supabase
-                  .from('team_season_selections')
-                  .select('locked')
-                  .eq('auction_room_id', roomId)
-                  .limit(1)
-                  .single()
-                const alreadyLocked = existing?.locked
-                if (alreadyLocked) {
-                  await supabase.from('team_season_selections')
-                    .update({ locked: false, locked_at: null })
-                    .eq('auction_room_id', roomId)
-                  toast.success('🔓 Squad selections unlocked')
-                } else {
-                  await supabase.rpc('lock_all_squad_selections', { p_room_id: roomId })
-                  toast.success('🔒 All squad selections locked — no changes allowed')
-                }
-              }}
-              className="btn-ghost flex items-center gap-2"
-            >
-              🔒 Lock Squad Selections
-            </button>
           </div>
         </div>
 
@@ -708,39 +684,8 @@ Start the JSON array now:`
           </button>
         </div>
 
-        {/* Daily score update */}
-        <div className="card p-4">
-          <div className="flex items-start justify-between gap-4 mb-3">
-            <div className="flex-1">
-              <h2 className="font-bold">📊 Update Today's Scores</h2>
-              <p className="text-xs text-white/40 font-mono mt-1">
-                After each match day — Claude auto-detects today's IPL results and updates all fantasy points.
-              </p>
-            </div>
-            <button onClick={updateTodayScores} disabled={updatingScores} className="btn-gold flex-shrink-0">
-              {updatingScores
-                ? <span className="flex items-center gap-2"><span className="w-3 h-3 border-2 border-black/30 border-t-black rounded-full animate-spin"/>Fetching...</span>
-                : '📊 Update Scores'}
-            </button>
-          </div>
-          <div className="border-t border-bg-border pt-3">
-            <p className="text-xs text-white/30 font-mono mb-2">Or enter a specific match:</p>
-            <div className="flex gap-2">
-              <input
-                value={matchInput}
-                onChange={e => setMatchInput(e.target.value)}
-                placeholder="e.g. MI vs CSK IPL 2026 Match 14"
-                className="flex-1 bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-gold/40 outline-none"
-                onKeyDown={e => e.key === 'Enter' && processPoints()}
-              />
-              <button onClick={processPoints} disabled={processingPoints} className="btn-gold flex-shrink-0">
-                {processingPoints
-                  ? <span className="flex items-center gap-2"><span className="w-3 h-3 border-2 border-black/30 border-t-black rounded-full animate-spin"/>...</span>
-                  : '🤖 Fetch & Process'}
-              </button>
-            </div>
-          </div>
-        </div>
+        {/* Manual Score Entry */}
+        <ManualScoreEntry roomId={roomId} soldPlayers={soldPlayers} onDone={() => { refreshTeams(); refreshAllPlayers() }} />
 
         {/* Teams overview */}
         <div className="card p-4">
@@ -1163,6 +1108,266 @@ function AdminOverride({ teams, soldPlayers, roomId, onRefresh }) {
                 className="w-full py-2 bg-yellow-500 text-black rounded-lg font-bold text-sm disabled:opacity-40">
                 {transferring ? 'Transferring...' : '🔄 Force Transfer'}
               </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Manual Score Entry — no AI needed
+// ─────────────────────────────────────────────────────────────
+function ManualScoreEntry({ roomId, soldPlayers, onDone }) {
+  const [open, setOpen] = useState(false)
+  const [step, setStep] = useState(1) // 1=match, 2=players, 3=done
+  const [matchName, setMatchName] = useState('')
+  const [matchId, setMatchId] = useState(null)
+  const [players, setPlayers] = useState([]) // enriched sold players
+  const [scores, setScores] = useState({}) // playerId -> stats object
+  const [saving, setSaving] = useState(false)
+  const [filter, setFilter] = useState('') // search filter
+
+  // points imported dynamically below
+
+  useEffect(() => {
+    if (!open || players.length) return
+    const enriched = soldPlayers.map(ap => ({
+      ...ap,
+      player: PLAYERS.find(p => p.id === ap.player_id),
+    })).filter(ap => ap.player).sort((a, b) => a.player.name.localeCompare(b.player.name))
+    setPlayers(enriched)
+    // Init scores
+    const init = {}
+    enriched.forEach(ap => {
+      init[ap.player_id] = {
+        in_lineup: false, is_substitute: false, did_not_play: false,
+        runs: 0, balls: 0, fours: 0, sixes: 0, dismissed: false,
+        overs: 0, runs_conceded: 0, wickets: 0, maidens: 0, dot_balls: 0, lbw_bowled_wickets: 0,
+        catches: 0, stumpings: 0, run_out_direct: 0, run_out_indirect: 0,
+      }
+    })
+    setScores(init)
+  }, [open, soldPlayers])
+
+  function updateScore(playerId, field, value) {
+    setScores(s => ({ ...s, [playerId]: { ...s[playerId], [field]: value } }))
+  }
+
+  async function createMatch() {
+    if (!matchName.trim()) return toast.error('Enter match name')
+    const { data, error } = await supabase
+      .from('matches')
+      .upsert({ auction_room_id: roomId, name: matchName.trim(), status: 'completed', is_today: false, match_number: 0 }, { onConflict: 'auction_room_id,name' })
+      .select().single()
+    if (error) return toast.error(error.message)
+    setMatchId(data.id)
+    setStep(2)
+  }
+
+  async function saveScores() {
+    if (!matchId) return
+    setSaving(true)
+    try {
+      let saved = 0
+      for (const ap of players) {
+        const s = scores[ap.player_id]
+        if (!s) continue
+
+        const perf = {
+          in_lineup: s.in_lineup,
+          is_substitute: s.is_substitute,
+          did_not_play: s.did_not_play,
+          batting: s.did_not_play ? null : { runs: +s.runs, balls: +s.balls, fours: +s.fours, sixes: +s.sixes, dismissed: s.dismissed },
+          bowling: s.did_not_play || +s.overs === 0 ? null : { overs: +s.overs, runs_conceded: +s.runs_conceded, wickets: +s.wickets, maidens: +s.maidens, dot_balls: +s.dot_balls, lbw_bowled_wickets: +s.lbw_bowled_wickets },
+          fielding: { catches: +s.catches, stumpings: +s.stumpings, run_out_direct: +s.run_out_direct, run_out_indirect: +s.run_out_indirect },
+        }
+
+        const { calculateTotalPoints } = await import('../utils/points')
+        const totalPts = calculateTotalPoints(perf)
+
+        await supabase.from('match_performances').upsert({
+          match_id: matchId,
+          auction_room_id: roomId,
+          player_id: ap.player_id,
+          team_id: ap.sold_to_team_id,
+          ...perf,
+          total_points: totalPts,
+        }, { onConflict: 'match_id,player_id' })
+        saved++
+      }
+
+      // Update team totals
+      const teamIds = [...new Set(players.map(ap => ap.sold_to_team_id))]
+      for (const tid of teamIds) {
+        await supabase.rpc('update_team_points', { p_team_id: tid, p_room_id: roomId })
+      }
+
+      toast.success(`✅ Saved scores for ${saved} players`)
+      setStep(3)
+      onDone()
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function reset() { setStep(1); setMatchName(''); setMatchId(null); setFilter('') }
+
+  const filtered = players.filter(ap =>
+    !filter || ap.player?.name?.toLowerCase().includes(filter.toLowerCase()) || ap.player?.team?.toLowerCase().includes(filter.toLowerCase())
+  )
+
+  return (
+    <div className="card overflow-hidden">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between p-4 hover:bg-bg-elevated/30 transition-colors">
+        <h2 className="font-bold">📊 Update Match Scores</h2>
+        <span className="text-white/40 font-mono text-sm">{open ? '▲ Hide' : '▼ Show'}</span>
+      </button>
+
+      {open && (
+        <div className="border-t border-bg-border p-4 space-y-4">
+
+          {/* Step indicator */}
+          <div className="flex gap-2 text-xs font-mono">
+            {['1 Match', '2 Enter Scores', '3 Done'].map((s, i) => (
+              <span key={i} className={`px-2 py-1 rounded ${step === i+1 ? 'bg-gold text-black font-bold' : 'text-white/30'}`}>{s}</span>
+            ))}
+          </div>
+
+          {/* Step 1: Match name */}
+          {step === 1 && (
+            <div className="space-y-3">
+              <p className="text-xs text-white/40 font-mono">Enter the match name — e.g. "MI vs CSK M14"</p>
+              <div className="flex gap-2">
+                <input
+                  value={matchName}
+                  onChange={e => setMatchName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && createMatch()}
+                  placeholder="MI vs CSK M14"
+                  className="flex-1 bg-bg-deep border border-bg-border rounded-lg px-3 py-2 text-white text-sm focus:border-gold/40 outline-none"
+                />
+                <button onClick={createMatch} className="btn-gold">Next →</button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Enter scores per player */}
+          {step === 2 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-xs text-white/40 font-mono">Match: <span className="text-white">{matchName}</span> — enter stats for each player who played</p>
+                <input
+                  value={filter}
+                  onChange={e => setFilter(e.target.value)}
+                  placeholder="Filter players..."
+                  className="bg-bg-deep border border-bg-border rounded-lg px-3 py-1.5 text-white text-xs focus:border-gold/40 outline-none w-48"
+                />
+              </div>
+
+              <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+                {filtered.map(ap => {
+                  const p = ap.player
+                  const s = scores[ap.player_id] || {}
+                  const isBat = ['BAT','WK','AR'].includes(p.role)
+                  const isBwl = ['BWL','AR'].includes(p.role)
+                  return (
+                    <div key={ap.player_id} className={`card p-3 space-y-2 ${s.did_not_play ? 'opacity-40' : ''}`}>
+                      {/* Header */}
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <div className="flex-1">
+                          <span className="font-bold text-sm">{p.name}</span>
+                          <span className="text-xs text-white/30 font-mono ml-2">{p.team} · {p.role}</span>
+                          {p.is_foreign && <span className="text-xs ml-1">🌍</span>}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs">
+                          <label className="flex items-center gap-1 cursor-pointer">
+                            <input type="checkbox" checked={s.in_lineup||false} onChange={e => updateScore(ap.player_id,'in_lineup',e.target.checked)} className="accent-gold"/>
+                            <span className="text-white/60">In XI (+4)</span>
+                          </label>
+                          <label className="flex items-center gap-1 cursor-pointer">
+                            <input type="checkbox" checked={s.is_substitute||false} onChange={e => updateScore(ap.player_id,'is_substitute',e.target.checked)} className="accent-gold"/>
+                            <span className="text-white/60">Sub (+4)</span>
+                          </label>
+                          <label className="flex items-center gap-1 cursor-pointer">
+                            <input type="checkbox" checked={s.did_not_play||false} onChange={e => updateScore(ap.player_id,'did_not_play',e.target.checked)} className="accent-red-400"/>
+                            <span className="text-white/40">DNP</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {!s.did_not_play && (
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          {/* Batting */}
+                          <div className="space-y-1.5">
+                            <div className="text-white/30 font-mono uppercase tracking-wider text-xs">🏏 Batting</div>
+                            <div className="grid grid-cols-3 gap-1">
+                              {[['runs','R'],['balls','B'],['fours','4s'],['sixes','6s']].map(([f,label]) => (
+                                <div key={f}>
+                                  <div className="text-white/25 font-mono text-xs mb-0.5">{label}</div>
+                                  <input type="number" min="0" value={s[f]||0} onChange={e => updateScore(ap.player_id,f,e.target.value)}
+                                    className="w-full bg-bg-deep border border-bg-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-gold/40"/>
+                                </div>
+                              ))}
+                            </div>
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input type="checkbox" checked={s.dismissed||false} onChange={e => updateScore(ap.player_id,'dismissed',e.target.checked)} className="accent-gold"/>
+                              <span className="text-white/40 text-xs">Dismissed</span>
+                            </label>
+                          </div>
+
+                          {/* Bowling */}
+                          <div className="space-y-1.5">
+                            <div className="text-white/30 font-mono uppercase tracking-wider text-xs">🎳 Bowling</div>
+                            <div className="grid grid-cols-3 gap-1">
+                              {[['overs','Ov'],['runs_conceded','RC'],['wickets','Wk'],['maidens','Md'],['dot_balls','Dot'],['lbw_bowled_wickets','LB']].map(([f,label]) => (
+                                <div key={f}>
+                                  <div className="text-white/25 font-mono text-xs mb-0.5">{label}</div>
+                                  <input type="number" min="0" step={f==='overs'?'0.1':'1'} value={s[f]||0} onChange={e => updateScore(ap.player_id,f,e.target.value)}
+                                    className="w-full bg-bg-deep border border-bg-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-gold/40"/>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Fielding */}
+                          <div className="space-y-1.5 col-span-2">
+                            <div className="text-white/30 font-mono uppercase tracking-wider text-xs">🧤 Fielding</div>
+                            <div className="flex gap-3">
+                              {[['catches','Ct'],['stumpings','St'],['run_out_direct','RO↑'],['run_out_indirect','RO↓']].map(([f,label]) => (
+                                <div key={f} className="flex-1">
+                                  <div className="text-white/25 font-mono text-xs mb-0.5">{label}</div>
+                                  <input type="number" min="0" value={s[f]||0} onChange={e => updateScore(ap.player_id,f,e.target.value)}
+                                    className="w-full bg-bg-deep border border-bg-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-gold/40"/>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-bg-border">
+                <button onClick={reset} className="btn-ghost text-sm">← Back</button>
+                <button onClick={saveScores} disabled={saving} className="btn-gold flex-1 text-sm">
+                  {saving ? 'Saving...' : '✅ Save All Scores & Update Points'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Done */}
+          {step === 3 && (
+            <div className="text-center py-6 space-y-3">
+              <div className="text-5xl">✅</div>
+              <div className="font-display text-2xl text-sold">Scores saved!</div>
+              <div className="text-white/40 font-mono text-sm">Team fantasy points updated</div>
+              <button onClick={reset} className="btn-gold text-sm">Enter Another Match</button>
             </div>
           )}
         </div>
