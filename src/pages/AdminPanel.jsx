@@ -564,6 +564,30 @@ Start the JSON array now:`
             >
               {room?.transfer_window_open ? '🔒 Close Transfers' : '🔄 Open Transfer Window'}
             </button>
+            {/* Lock / Unlock squad selections */}
+            <button
+              onClick={async () => {
+                const { data: existing } = await supabase
+                  .from('team_season_selections')
+                  .select('locked')
+                  .eq('auction_room_id', roomId)
+                  .limit(1)
+                  .single()
+                const alreadyLocked = existing?.locked
+                if (alreadyLocked) {
+                  await supabase.from('team_season_selections')
+                    .update({ locked: false, locked_at: null })
+                    .eq('auction_room_id', roomId)
+                  toast.success('🔓 Squad selections unlocked')
+                } else {
+                  await supabase.rpc('lock_all_squad_selections', { p_room_id: roomId })
+                  toast.success('🔒 All squad selections locked — no changes allowed')
+                }
+              }}
+              className="btn-ghost flex items-center gap-2"
+            >
+              🔒 Lock Squad Selections
+            </button>
           </div>
         </div>
 

@@ -20,6 +20,7 @@ export default function TeamSelection() {
   const [existing, setExisting]           = useState(null)
   const [allSelections, setAllSelections] = useState([])
   const [saving, setSaving]               = useState(false)
+  const [isLocked, setIsLocked]           = useState(false)
   const [autoFilling, setAutoFilling]     = useState(false)
   const [roleFilter, setRoleFilter]       = useState('All')
 
@@ -50,7 +51,7 @@ export default function TeamSelection() {
       .eq('team_id', user.teamId)
       .eq('auction_room_id', roomId)
       .single()
-    if (data) { setExisting(data); setSelected(data.player_ids) }
+    if (data) { setExisting(data); setSelected(data.player_ids); setIsLocked(data.locked || false) }
   }
 
   async function fetchAllSelections() {
@@ -74,6 +75,7 @@ export default function TeamSelection() {
   }
 
   async function saveSelection() {
+    if (isLocked) { toast.error('Squad is locked — contact admin to unlock'); return }
     if (selected.length !== SELECTION_SIZE) {
       toast.error(`Select exactly ${SELECTION_SIZE} players`)
       return
@@ -174,8 +176,8 @@ export default function TeamSelection() {
             </p>
           </div>
           {existing && (
-            <div className="bg-sold/10 border border-sold/30 rounded-xl px-4 py-2 text-sold text-sm font-mono">
-              ✅ Squad locked {existing.is_auto_selected ? '(auto)' : ''}
+            <div className={`border rounded-xl px-4 py-2 text-sm font-mono ${isLocked ? 'bg-danger/10 border-danger/30 text-danger' : 'bg-sold/10 border-sold/30 text-sold'}`}>
+              {isLocked ? '🔒 Squad locked — no changes allowed' : `✅ Squad saved ${existing.is_auto_selected ? '(auto)' : ''} — not yet locked`}
             </div>
           )}
         </div>
@@ -249,10 +251,10 @@ export default function TeamSelection() {
                   <button onClick={autoFillMine} className="btn-ghost text-xs py-1.5">🔀 Auto-fill</button>
                   <button
                     onClick={saveSelection}
-                    disabled={saving || selected.length !== SELECTION_SIZE}
+                    disabled={saving || selected.length !== SELECTION_SIZE || isLocked}
                     className="btn-gold text-xs py-1.5"
                   >
-                    {saving ? 'Saving...' : 'Lock Squad ✓'}
+                    {saving ? 'Saving...' : isLocked ? '🔒 Squad Locked' : 'Lock Squad ✓'}
                   </button>
                 </div>
               </div>
